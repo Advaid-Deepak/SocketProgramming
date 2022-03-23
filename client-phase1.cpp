@@ -250,13 +250,22 @@ int main(int argc, char *argv[])
 
 
     //to handle outgoing connections
-    for (auto &u:neighbors)
+    while (true)
     {
-        u.makeConnection();
-        cout<<u.rcvMessage()<<endl;
+        bool allconnected = true;
+        for (auto &u:neighbors)
+        {   
+            if (!u.isConnected())
+            {   if(u.makeConnection())
+                cout<<u.rcvMessage()<<endl;
+                allconnected = false;
+            }
+        }
+        if (allconnected)
+        break;
     }
 
-    while (true) ;
+    recving.join();
 
     close(sock_fd);
     return 0;
