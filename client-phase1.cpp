@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <thread>
 using namespace std;
-
+#define MAXDATASIZE 1000
 
 class Neighbour{
 private:
@@ -16,6 +16,7 @@ private:
     int sock_fd;
     bool connected;
     bool hassocket;
+    char rcvmsg[MAXDATASIZE];
 public:
     Neighbour(int _clientid,int _listening_port);
     bool makeConnection();
@@ -23,6 +24,7 @@ public:
     bool sendMessage(string S);
     bool isConnected();
     bool hasSocket();
+    string rcvMessage();
     ~Neighbour();
 };
 
@@ -98,17 +100,54 @@ bool Neighbour::sendMessage(string s)
     }
 }
 
+string Neighbour::rcvMessage()
+{
+    int numbytes;
+    numbytes = recv(sock_fd, rcvmsg, MAXDATASIZE-1, 0);
+    if(numbytes == -1)
+    {
+        perror("Could not recieve");
+        return "";
+    }
+    else
+    {
+        string res = "";
+        for (int i=0;i<numbytes;i++)
+        {
+            res += rcvmsg[i];
+        }
+        return res;
+    }
+}
+
 Neighbour::~Neighbour()
 {
     close(sock_fd);
 }
 
 
-void incoming_threadfn(int sock_fd)
+void incoming_threadfn(int sock_fd, int clientid, int uniqueid)
 {
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    int new_fd;
+    stringstream ss;
+    ss << "Connected to " << clientid <<" with unique id " << uniqueid;
+    string s = ss.str();
     while(true)
     {
-       //need to fill in action once we have recieved connections 
+        sin_size = sizeof their_addr;
+        new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
+        if (!fork())
+        {
+            close(sock_fd); // child doesn't need the listener
+            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
+                perror("send");
+            close(new_fd);
+            exit(0);
+        }
+        close(new_fd);
+
     }
 }
 
@@ -206,14 +245,18 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     
-    thread recving(incoming_threadfn,sock_fd);
+    thread recving(incoming_threadfn,sock_fd,client_id,unique_id);
 
 
 
     //to handle outgoing connections
+    for (auto &u:neighbors)
+    {
+        u.makeConnection();
+        cout<<u.rcvMessage()<<endl;
+    }
 
-
-
+    while (true) ;
 
     close(sock_fd);
     return 0;
