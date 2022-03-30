@@ -176,6 +176,7 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<string> fi
     string s = ss.str();
 
     stringstream ss2 ; 
+    //ss2 << " " ;
     for(int i = 0 ; i < files.size() ; i++){
         ss2 << files[i] << " " ;
     }
@@ -317,10 +318,11 @@ int main(int argc, char *argv[])
                     for(int  i = 0 ;  i < 7 ; i++){
                        string detail ;
                        details >> detail ; 
+                        //cout << detail << endl ;
                        if(i == 6) {
+                          
                            u.setUniqueID(stoi(detail)) ;
                         } 
-                        i++ ;
                     }
                        
                    
