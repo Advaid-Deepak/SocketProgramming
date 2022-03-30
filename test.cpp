@@ -5,6 +5,11 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <thread>
+
+
+
+#include <sys/types.h>
+#include <netdb.h>
 using namespace std;
 #define MAXDATASIZE 1000
 
@@ -165,41 +170,15 @@ bool compareFunction(Neighbour n1, Neighbour n2)
     return n1.compareNeighbours(n1,n2) ;
 }
 
-
-void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<string> files)
+void *get_in_addr(struct sockaddr *sa)
 {
-    struct sockaddr_storage their_addr; // connector's address information
-    socklen_t sin_size;
-    int new_fd;
-    stringstream ss;
-    ss << "Connected to " << clientid <<" with unique id " << uniqueid  ;
-    string s = ss.str();
-
-    stringstream ss2 ; 
-    ss2 << " " ;
-    for(int i = 0 ; i < files.size() ; i++){
-        ss2 << files[i] << " " ;
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
     }
-    string s2 = ss2.str() ;
-    while(true)
-    {
-        sin_size = sizeof their_addr;
-        new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
-        if (!fork())
-        {
-            close(sock_fd); // child doesn't need the listener
-            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
-                perror("send");
-            sleep(5) ;
-            if (send(new_fd, s2.c_str(), s2.length(), 0) == -1)
-                perror("send");
-            close(new_fd);
-            exit(0);
-        }
-        close(new_fd);
 
-    }
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -274,99 +253,139 @@ int main(int argc, char *argv[])
 
     //for (auto file : files_needed) cout << file.first << "\n";
 
+   fd_set master;    // master file descriptor list
+    fd_set read_fds;  // temp file descriptor list for select()
+    int fdmax;        // maximum file descriptor number
 
+    int listener;     // listening socket descriptor
+    int newfd;        // newly accept()ed socket descriptor
+    struct sockaddr_storage remoteaddr; // client address
+    socklen_t addrlen;
 
-    //to handle incoming connections
-    int sock_fd = -1;
-    struct sockaddr_in addr;
-    sock_fd = socket(AF_INET,SOCK_STREAM,0);
-    if (sock_fd == -1)
-    {
-        perror("Couldnt create socket to listen");
-        exit(EXIT_FAILURE);
-    }
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port);
+    char buf[256];    // buffer for client data
+    int nbytes;
 
-    if (bind(sock_fd, (sockaddr *)&addr, sizeof(addr)) < 0)
-    {
-        perror("Could not bind");
-        exit(EXIT_FAILURE);
-    }
-    else if(listen(sock_fd,15) < 0)
-    {
-        perror("Could not listen");
-        exit(EXIT_FAILURE);
+    char remoteIP[INET6_ADDRSTRLEN];
+
+    int yes=1;        // for setsockopt() SO_REUSEADDR, below
+    int i, j, rv;
+
+    struct addrinfo hints ;
+    struct addrinfo *ai, *p;
+
+    FD_ZERO(&master);    // clear the master and temp sets
+    FD_ZERO(&read_fds);
+
+    // get us a socket and bind it
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+    if ((rv = getaddrinfo(NULL, port+"", &hints, &ai)) != 0) {
+        fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
+        exit(1);
     }
     
-    thread recving(incoming_threadfn,sock_fd,client_id,unique_id,files_owned);
-
-
-
-    //to handle outgoing connections
-    while (true)
-    {
-        bool allconnected = true;
-        int count = 0 ;
-        for (auto &u:neighbors)
-        {   
-            if (!u.isConnected())
-            {   
-                if(u.makeConnection()){
-                    cout<<u.rcvMessage()<<endl;
-                    istringstream details(u.getMessage(0));
-                    for(int  i = 0 ;  i < 7 ; i++){
-                       string detail ;
-                       details >> detail ; 
-                        //cout << detail << endl ;
-                       if(i == 6) {
-                          
-                           u.setUniqueID(stoi(detail)) ;
-                        } 
-                    }
-                       
-                   
-                
-                }
-                 allconnected = false;
-                
-            }
-            else{
-               u.rcvMessage() ;
-               u.setDepth1() ;
-            }
-            if(u.checkDepth1()){
-              istringstream files(u.getMessage(1));
-              while(files){
-                 string file ;
-                 files >> file ;
-                 for(int i = 0 ; i < files_needed.size() ; i++){
-                   if(files_needed[i].first == file) {
-                         files_needed[i].second.push_back(u) ;
-                   }
-                 }
-              }
-             count++ ;
-            } 
+    for(p = ai; p != NULL; p = p->ai_next) {
+        listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (listener < 0) { 
+            continue;
         }
-        if(count == neighbors.size()){
-            for(int i = 0 ; i < files_needed.size() ; i++){
-                   sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
-                   if(!files_needed[i].second.empty()) {
-                       cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0].GetUniqueID() <<" with MD5 0 at depth 1\n" ;
-                   }
-                   else {
-                       cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
-                   }
-               }
+        
+        // lose the pesky "address already in use" error message
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+
+        if (bind(listener, p->ai_addr, p->ai_addrlen) < 0) {
+            close(listener);
+            continue;
         }
-        if (allconnected)
+
         break;
     }
 
-    recving.join();
+    // if we got here, it means we didn't get bound
+    if (p == NULL) {
+        fprintf(stderr, "selectserver: failed to bind\n");
+        exit(2);
+    }
 
-    close(sock_fd);
+    freeaddrinfo(ai); // all done with this
+
+    // listen
+    if (listen(listener, 10) == -1) {
+        perror("listen");
+        exit(3);
+    }
+
+    // add the listener to the master set
+    FD_SET(listener, &master);
+
+    // keep track of the biggest file descriptor
+    fdmax = listener; // so far, it's this one
+
+    // main loop
+    for(;;) {
+        read_fds = master; // copy it
+        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
+            perror("select");
+            exit(4);
+        }
+
+        // run through the existing connections looking for data to read
+        for(i = 0; i <= fdmax; i++) {
+            if (FD_ISSET(i, &read_fds)) { // we got one!!
+                if (i == listener) {
+                    // handle new connections
+                    addrlen = sizeof remoteaddr;
+                    newfd = accept(listener,
+                        (struct sockaddr *)&remoteaddr,
+                        &addrlen);
+
+                    if (newfd == -1) {
+                        perror("accept");
+                    } else {
+                        FD_SET(newfd, &master); // add to master set
+                        if (newfd > fdmax) {    // keep track of the max
+                            fdmax = newfd;
+                        }
+                        printf("selectserver: new connection from %s on "
+                            "socket %d\n",
+                            inet_ntop(remoteaddr.ss_family,
+                                get_in_addr((struct sockaddr*)&remoteaddr),
+                                remoteIP, INET6_ADDRSTRLEN),
+                            newfd);
+                    }
+                } else {
+                    // handle data from a client
+                    if ((nbytes = recv(i, buf, sizeof buf, 0)) <= 0) {
+                        // got error or connection closed by client
+                        if (nbytes == 0) {
+                            // connection closed
+                            printf("selectserver: socket %d hung up\n", i);
+                        } else {
+                            perror("recv");
+                        }
+                        close(i); // bye!
+                        FD_CLR(i, &master); // remove from master set
+                    } else {
+                        // we got some data from a client
+                        for(j = 0; j <= fdmax; j++) {
+                            // send to everyone!
+                            if (FD_ISSET(j, &master)) {
+                                // except the listener and ourselves
+                                if (j != listener && j != i) {
+                                    if (send(j, buf, nbytes, 0) == -1) {
+                                        perror("send");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } // END handle data from client
+            } // END got new incoming connection
+        } // END looping through file descriptors
+    } 
+
+    
     return 0;
 }
