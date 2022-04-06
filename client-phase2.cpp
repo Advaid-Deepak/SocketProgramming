@@ -166,33 +166,57 @@ bool compareFunction(Neighbour n1, Neighbour n2)
 }
 
 
-void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<string> files)
+void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned)
 {
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
     int new_fd;
     stringstream ss;
     ss << "Connected to " << clientid <<" with unique id " << uniqueid  ;
-    string s = ss.str();
-
-    stringstream ss2 ; 
-    ss2 << " " ;
-    for(int i = 0 ; i < files.size() ; i++){
-        ss2 << files[i] << " " ;
-    }
-    string s2 = ss2.str() ;
+    string s = ss.str() ;
     while(true)
     {
+        
         sin_size = sizeof their_addr;
         new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
         if (!fork())
         {
+            //wait for reply with list of files to search for
+            //send file I found
             close(sock_fd); // child doesn't need the listener
             if (send(new_fd, s.c_str(), s.length(), 0) == -1)
                 perror("send");
-            sleep(5) ;
-            if (send(new_fd, s2.c_str(), s2.length(), 0) == -1)
-                perror("send");
+            int numbytes;
+            char rcvmsg[MAXDATASIZE] ;
+            numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
+            string res = "";
+            if(numbytes == -1)
+            {
+               perror("Could not recieve");
+            }
+            else
+            {
+              for (int i=0;i<numbytes;i++)
+               {
+                   res += rcvmsg[i];
+               }
+            }
+            istringstream files_stream(res);
+            stringstream file_to_be_sent;
+            while(files_stream){
+               string  file ;
+               files_stream >> file ;
+               for(int i = 0 ; i < files_owned.size() ; i++){
+                                   if(files_owned[i] == file) {
+                                        file_to_be_sent << file << " " ;
+                                        
+                                    }
+               }
+            }
+            string file_to_send = file_to_be_sent.str() ;
+            if (send(new_fd, file_to_send.c_str(), file_to_send.length(), 0) == -1)
+                    perror("send");
+                                        
             close(new_fd);
             exit(0);
         }
@@ -200,6 +224,8 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<string> fi
 
     }
 }
+
+
 
 int main(int argc, char *argv[])
 {
@@ -300,11 +326,14 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     
-    thread recving(incoming_threadfn,sock_fd,client_id,unique_id,files_owned);
+    thread recving(incoming_threadfn,sock_fd,client_id,unique_id,files_needed,files_owned);
 
 
 
     //to handle outgoing connections
+    // send what files needed
+    //wait for reply with list of files found
+    //Print
     while (true)
     {
         bool allconnected = true;
@@ -316,49 +345,56 @@ int main(int argc, char *argv[])
                 if(u.makeConnection()){
                     cout<<u.rcvMessage()<<endl;
                     istringstream details(u.getMessage(0));
-                    for(int  i = 0 ;  i < 7 ; i++){
+                    int i = 0 ;
+                    while(details){
                        string detail ;
                        details >> detail ; 
                         //cout << detail << endl ;
                        if(i == 6) {
-                          
                            u.setUniqueID(stoi(detail)) ;
                         } 
+                        i++ ;
                     }
-                       
+                    stringstream f ;
+                    for(int i = 0 ; i < files_needed.size(); i++){
+                        f << files_needed[i].first << " " ;
+                    }
+                    string f_send = f.str() ;
+                    u.sendMessage(f_send) ;
+                    u.setDepth1() ;   
                    
                 
                 }
-                 allconnected = false;
+                allconnected = false;
                 
             }
-            else{
-               u.rcvMessage() ;
-               u.setDepth1() ;
+            else if(u.checkDepth1()){
+                cout<<u.rcvMessage()<<endl;
+                string file_given ;
+                istringstream files_rec(u.getMessage(1)) ;
+                int j = 0 ;
+                while(files_rec){
+                    string data ;
+                    files_rec >> data ;
+                    for(int i = 0 ; i < files_needed.size() ; i++){
+                             if(data == files_needed[i].first){
+                                 files_needed[i].second.push_back(u);
+                             }
+                    }
+                    j++ ;
+                }
+                count++ ;
             }
-            if(u.checkDepth1()){
-              istringstream files(u.getMessage(1));
-              while(files){
-                 string file ;
-                 files >> file ;
-                 for(int i = 0 ; i < files_needed.size() ; i++){
-                   if(files_needed[i].first == file) {
-                         files_needed[i].second.push_back(u) ;
-                   }
-                 }
-              }
-             count++ ;
-            } 
         }
         if(count == neighbors.size()){
             for(int i = 0 ; i < files_needed.size() ; i++){
-                   sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
-                   if(!files_needed[i].second.empty()) {
+                    sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
+                    if(!files_needed[i].second.empty()) {
                        cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0].GetUniqueID() <<" with MD5 0 at depth 1\n" ;
-                   }
-                   else {
+                    }
+                    else {
                        cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
-                   }
+                    }
                }
         }
         if (allconnected)
@@ -366,6 +402,8 @@ int main(int argc, char *argv[])
     }
 
     recving.join();
+
+    
 
     close(sock_fd);
     return 0;
