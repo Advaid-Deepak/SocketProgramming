@@ -9,9 +9,6 @@ using namespace std;
 #define MAXDATASIZE 1000
 pthread_mutex_t print_mutex;
 
-queue<string> buffer;
-pthread_mutex_t buffer_mutex;
-
 class Neighbour{
 private:
     int clientid;
@@ -173,7 +170,47 @@ bool compareFunction(Neighbour n1, Neighbour n2)
 {
     return n1.compareNeighbours(n1,n2) ;
 }
+void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid, vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned, string s)
+{
+           if (send(new_fd, s.c_str(), s.length(), 0) == -1)
+                perror("send");
+            int numbytes;
+            char rcvmsg[MAXDATASIZE] ;
+            numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
+            string res = "";
+            if(numbytes == -1)
+            {
+               perror("Could not recieve");
+            }
+            else
+            {
+              for (int i=0;i<numbytes;i++)
+               {
+                   res += rcvmsg[i];
+               }
+            }
+            // pthread_mutex_lock(&print_mutex);
+            // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
+            // pthread_mutex_unlock(&print_mutex);
+            istringstream fil_search_stream(res);
+            stringstream file_to_be_sent_stream;
+            while(fil_search_stream){
+               string  file ;
+               fil_search_stream >> file ;
+               for(int i = 0 ; i < files_owned.size() ; i++){
+                    if(files_owned[i] == file) {
+                        file_to_be_sent_stream << file << " " ;
+                        
+                    }
+               }
+            }
+            string files_to_send = file_to_be_sent_stream.str() ;
+            if (send(new_fd, files_to_send.c_str(), files_to_send.length(), 0) == -1)
+                    perror("send");
+                                        
+            close(new_fd);
 
+}
 
 void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned)
 {
@@ -183,12 +220,13 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<strin
     stringstream ss;
     ss << clientid <<" " << uniqueid;
     string s = ss.str() ;
+    vector<thread> threads ;
     while(true)
     {
         
         sin_size = sizeof their_addr;
         new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
-        if (!fork())
+/*        if (!fork())
         {
             //wait for reply with list of files to search for
             //send file I found
@@ -215,43 +253,25 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<strin
             // pthread_mutex_unlock(&print_mutex);
             istringstream fil_search_stream(res);
             stringstream file_to_be_sent_stream;
-            stringstream file_for_depth2_stream;
-            int counter = 0;
             while(fil_search_stream){
                string  file ;
                fil_search_stream >> file ;
-               bool found = false;
                for(int i = 0 ; i < files_owned.size() ; i++){
                     if(files_owned[i] == file) {
                         file_to_be_sent_stream << file << " " ;
-                        found = true;
+                        
                     }
                }
-               if (!found){
-                    counter++;
-                    file_for_depth2_stream << file << " " ;
-               }
             }
-            string depth2_files = file_for_depth2_stream.str() ;
             string files_to_send = file_to_be_sent_stream.str() ;
             if (send(new_fd, files_to_send.c_str(), files_to_send.length(), 0) == -1)
                     perror("send");
-
-            if (counter > 0)
-            {
-                pthread_mutex_lock(&buffer_mutex);
-                buffer.push(depth2_files);
-                pthread_mutex_unlock(&buffer_mutex);
-            }
-
-            //Recieve here  the file to be searched for at depth 2
-            //process, and reply like in phase 2
-
-
+                                        
             close(new_fd);
             exit(0);
-        }
-        close(new_fd);
+        }*/
+        threads.emplace_back(thread(sub_incoming_threadfn,new_fd,clientid,uniqueid,files,files_owned,s));
+        
 
     }
 }
@@ -431,8 +451,6 @@ int main(int argc, char *argv[])
         break;
     }
 
-
-
     for(int i = 0 ; i < files_needed.size() ; i++){
             sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
             if(!files_needed[i].second.empty()) {
@@ -444,25 +462,6 @@ int main(int argc, char *argv[])
             //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
         }
 
-    while (true){
-        pthread_mutex_lock(&buffer_mutex);
-        if (buffer.size() == 0)
-        {
-            pthread_mutex_unlock(&buffer_mutex);
-            continue;
-        }
-        string curr = buffer.front();
-        buffer.pop();
-        pthread_mutex_unlock(&buffer_mutex);
-        for (auto &u:neighbors)
-        {
-            if(u.isConnected()){
-                u.sendMessage(curr);
-                string response = u.rcvMessage();
-                // print the response after processing
-            }
-        }
-    }
 
     recving.join();
 
