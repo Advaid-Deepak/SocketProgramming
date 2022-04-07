@@ -7,6 +7,7 @@
 #include <thread>
 using namespace std;
 #define MAXDATASIZE 1000
+pthread_mutex_t print_mutex;
 
 class Neighbour{
 private:
@@ -33,6 +34,7 @@ public:
     string getMessage(int i) ;
     void setUniqueID(int id) ;
     int GetUniqueID() ;
+    int getPort();
     ~Neighbour();
 };
 
@@ -49,6 +51,10 @@ Neighbour::Neighbour(int _clientid,int _listening_port)
 bool Neighbour::isConnected()
 {
     return connected;
+}
+
+int Neighbour::getPort(){
+    return listening_port;
 }
 
 bool Neighbour::hasSocket()
@@ -100,7 +106,7 @@ bool Neighbour::sendMessage(string s)
 {
     if (connected)
     {
-        send(sock_fd,s.c_str(),sizeof(s.c_str()),0);
+        send(sock_fd,s.c_str(),s.length(),0);
         return true;
     }
     else
@@ -172,7 +178,7 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<strin
     socklen_t sin_size;
     int new_fd;
     stringstream ss;
-    ss << "Connected to " << clientid <<" with unique id " << uniqueid  ;
+    ss << clientid <<" " << uniqueid;
     string s = ss.str() ;
     while(true)
     {
@@ -201,20 +207,23 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<strin
                    res += rcvmsg[i];
                }
             }
-            istringstream files_stream(res);
-            stringstream file_to_be_sent;
-            while(files_stream){
+            // pthread_mutex_lock(&print_mutex);
+            // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
+            // pthread_mutex_unlock(&print_mutex);
+            istringstream fil_search_stream(res);
+            stringstream file_to_be_sent_stream;
+            while(fil_search_stream){
                string  file ;
-               files_stream >> file ;
+               fil_search_stream >> file ;
                for(int i = 0 ; i < files_owned.size() ; i++){
-                                   if(files_owned[i] == file) {
-                                        file_to_be_sent << file << " " ;
-                                        
-                                    }
+                    if(files_owned[i] == file) {
+                        file_to_be_sent_stream << file << " " ;
+                        
+                    }
                }
             }
-            string file_to_send = file_to_be_sent.str() ;
-            if (send(new_fd, file_to_send.c_str(), file_to_send.length(), 0) == -1)
+            string files_to_send = file_to_be_sent_stream.str() ;
+            if (send(new_fd, files_to_send.c_str(), files_to_send.length(), 0) == -1)
                     perror("send");
                                         
             close(new_fd);
@@ -234,52 +243,31 @@ int main(int argc, char *argv[])
     vector<pair<string,vector<Neighbour>>> files_needed ;
     vector<pair<string,int>> files_found ;
     string line;
-    ifstream config_file;
-    config_file.open(argv[1]);
+    ifstream fin;
+    fin.open(argv[1]);
 
-   if(!config_file.is_open()) {
+   if(!fin.is_open()) {
       perror("Error open");
       exit(EXIT_FAILURE);
    }
-   int line_num = 1;
-    while(getline(config_file, line)) {
-       if(line_num == 1){
-           istringstream line1(line);
-           line1 >> client_id ;
-           line1 >> port ;
-           line1 >> unique_id ;
-           line_num++ ;
-           continue ;
-       }
-       if(line_num == 2){
-           num_neighbor = stoi(line) ;
-           line_num++ ;
-           continue ;
-       }
-       if(line_num == 3){
-            istringstream line3(line) ;
-            for(int i = 0 ; i < num_neighbor ; i++){
-                int a , b ;
-                line3 >> a ; line3 >> b ;
-                //cout << a << " " << b << endl ;
-                neighbors.push_back(Neighbour(a,b)) ;
-            }
-            line_num++ ;
-            continue ;
-       }
-       if(line_num == 4) {
-           num_files_needed = stoi(line) ;
-           line_num++ ;
-           continue ;
-       }
-       if(line_num >= 5 && line_num < 5 + num_files_needed){
-           if(line_num != 4 + num_files_needed) line = line.substr(0,line.length()-1);
-           vector<Neighbour> n ;
-           files_needed.push_back(make_pair(line,n));
-           line_num++ ;
-       }
+
+    fin >> client_id >> port >> unique_id;
+    fin >> num_neighbor ;
+    for(int i = 0 ; i < num_neighbor ; i++){
+        int a , b ;
+        fin >> a >> b ;
+        neighbors.push_back(Neighbour(a,b)) ;
     }
-    config_file.close();
+    fin >> num_files_needed ;
+    for (int i=0;i<num_files_needed;i++)
+    {
+        string file_name ;
+        fin >> file_name ;
+        vector<Neighbour> n ;
+        files_needed.push_back(make_pair(file_name,n));
+    }
+
+    fin.close();
 
     DIR *dir;
     struct dirent *diread;
@@ -343,31 +331,49 @@ int main(int argc, char *argv[])
             if (!u.isConnected())
             {   
                 if(u.makeConnection()){
-                    cout<<u.rcvMessage()<<endl;
-                    istringstream details(u.getMessage(0));
-                    int i = 0 ;
-                    while(details){
-                       string detail ;
-                       details >> detail ; 
-                        //cout << detail << endl ;
-                       if(i == 6) {
-                           u.setUniqueID(stoi(detail)) ;
-                        } 
-                        i++ ;
-                    }
+                    string s = u.rcvMessage();
+                    istringstream details(s);
+                    int cl_id,un_id;
+                    details >> cl_id >> un_id;
+                    pthread_mutex_lock(&print_mutex);
+                    cout<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
+                    pthread_mutex_unlock(&print_mutex);
+                    u.setUniqueID(un_id);
                     stringstream f ;
                     for(int i = 0 ; i < files_needed.size(); i++){
                         f << files_needed[i].first << " " ;
                     }
                     string f_send = f.str() ;
-                    u.sendMessage(f_send) ;
-                    u.setDepth1() ;   
-                   
+                    // pthread_mutex_lock(&print_mutex);
+                    // cout<<"Sending a search request to "<<u.GetUniqueID()<<"\n"<<f_send<<endl; 
+                    // pthread_mutex_unlock(&print_mutex);
+                    u.sendMessage(f_send);
+                            //u.setDepth1() ;   
+                    s = u.rcvMessage(); //reply from files it asked for.
+                    // pthread_mutex_lock(&print_mutex);
+                    // cout<<"Received reply from "<<u.GetUniqueID()<<"\n"<<s<<endl;
+                    // pthread_mutex_unlock(&print_mutex);
+                    istringstream reply_stream(s);
+                    string file_name ;
+                    while(reply_stream){
+                        reply_stream >> file_name ;
+                        for(int i = 0 ; i < files_needed.size() ; i++){
+                            if(files_needed[i].first == file_name){
+                                files_needed[i].second.push_back(u) ;
+                                break;
+                            }
+                        }
+                    }
+                    // pthread_mutex_lock(&print_mutex);
+                    // cout<<s<<endl;
+                    // pthread_mutex_unlock(&print_mutex);
                 
                 }
                 allconnected = false;
                 
+                
             }
+            /*
             else if(u.checkDepth1()){
                 cout<<u.rcvMessage()<<endl;
                 string file_given ;
@@ -385,7 +391,9 @@ int main(int argc, char *argv[])
                 }
                 count++ ;
             }
+            */
         }
+        /*
         if(count == neighbors.size()){
             for(int i = 0 ; i < files_needed.size() ; i++){
                     sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
@@ -396,10 +404,22 @@ int main(int argc, char *argv[])
                        cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
                     }
                }
-        }
+        }*/
         if (allconnected)
         break;
     }
+
+    for(int i = 0 ; i < files_needed.size() ; i++){
+            sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
+            if(!files_needed[i].second.empty()) {
+                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0].GetUniqueID() <<" with MD5 0 at depth 1\n" ;
+            }
+            else {
+                cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
+            }
+            //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
+        }
+
 
     recving.join();
 
