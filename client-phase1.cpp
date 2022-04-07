@@ -24,9 +24,14 @@ public:
     bool sendMessage(string S);
     bool isConnected();
     bool hasSocket();
+    int getPort();
     string rcvMessage();
     ~Neighbour();
 };
+
+int Neighbour::getPort(){
+    return listening_port;
+}
 
 Neighbour::Neighbour(int _clientid,int _listening_port)
 {
@@ -132,7 +137,7 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid)
     socklen_t sin_size;
     int new_fd;
     stringstream ss;
-    ss << "Connected to " << clientid <<" with unique id " << uniqueid;
+    ss << clientid <<" " << uniqueid;
     string s = ss.str();
     while(true)
     {
@@ -257,7 +262,16 @@ int main(int argc, char *argv[])
         {   
             if (!u.isConnected())
             {   if(u.makeConnection())
-                cout<<u.rcvMessage()<<endl;
+                {
+                    string rcv;
+                    rcv = u.rcvMessage();
+                    istringstream iss(rcv);
+                    int a,b;
+                    iss >> a >> b;
+                    cout<<"Connected to " <<a<< " with unique-ID " << b <<" on port "<<u.getPort()<<endl;
+               
+                    
+                }
                 allconnected = false;
             }
         }
