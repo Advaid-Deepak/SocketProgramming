@@ -1,3 +1,5 @@
+client-phase4.o:client-phase4.cpp
+	g++ client-phase4.cpp -o client-phase4.o -lpthread
 client-phase3.o:client-phase3.cpp
 	g++ client-phase3.cpp -o client-phase3.o -lpthread
 client-phase2.o:client-phase2.cpp

@@ -9,8 +9,12 @@ using namespace std;
 #define MAXDATASIZE 1000
 pthread_mutex_t print_mutex;
 
-queue<string> buffer;
-pthread_mutex_t buffer_mutex;
+queue<pair<int,string>> buffer_in_to_out;
+pthread_mutex_t buffer_in_to_out_mutex;
+
+map<int,vector<string>> map_out_to_in ;
+pthread_mutex_t map_out_to_in_mutex;
+
 
 class Neighbour{
 private:
@@ -21,6 +25,8 @@ private:
     bool connected;
     bool hassocket;
     bool depth1 ;
+    bool depth2_1 ;
+    bool depth2_2 ;
     char rcvmsg[MAXDATASIZE];
     vector<string> recieved_messages ;
 public:
@@ -33,6 +39,10 @@ public:
     bool compareNeighbours(Neighbour n1,Neighbour n2) ;
     bool checkDepth1() ;
     void setDepth1() ;
+    void setDepth2_1() ;
+    void setDepth2_2() ;
+    bool checkDepth2_1() ;
+    bool checkDepth2_2() ;
     string rcvMessage();
     string getMessage(int i) ;
     void setUniqueID(int id) ;
@@ -49,6 +59,8 @@ Neighbour::Neighbour(int _clientid,int _listening_port)
     connected = false;
     hassocket = false;
     depth1 = false ;
+    depth2_1 = false ;
+    depth2_2 = false ;
 }
 
 bool Neighbour::isConnected()
@@ -155,6 +167,22 @@ void Neighbour::setDepth1(){
     depth1 = true ;
 }
 
+bool Neighbour::checkDepth2_1(){
+    return depth2_1 ;
+}
+
+void Neighbour::setDepth2_1(){
+    depth2_1 = true ;
+}
+
+bool Neighbour::checkDepth2_2(){
+    return depth2_2 ;
+}
+
+void Neighbour::setDepth2_2(){
+    depth2_2 = true ;
+}
+
 Neighbour::~Neighbour()
 {
     close(sock_fd);
@@ -169,35 +197,15 @@ int Neighbour::GetUniqueID(){
     return uniqueid ;
 }
 
-bool compareFunction(Neighbour n1, Neighbour n2)
-{
-    return n1.compareNeighbours(n1,n2) ;
-}
 
-
-void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned)
+void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid, vector<pair<string,vector<int>>> files,vector<string> files_owned, string s)
 {
-    struct sockaddr_storage their_addr; // connector's address information
-    socklen_t sin_size;
-    int new_fd;
-    stringstream ss;
-    ss << clientid <<" " << uniqueid;
-    string s = ss.str() ;
-    while(true)
-    {
-        
-        sin_size = sizeof their_addr;
-        new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
-        if (!fork())
-        {
-            //wait for reply with list of files to search for
-            //send file I found
-            close(sock_fd); // child doesn't need the listener
-            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
+           if (send(new_fd, s.c_str(), s.length(), 0) == -1)
                 perror("send");
             int numbytes;
             char rcvmsg[MAXDATASIZE] ;
             numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
+            
             string res = "";
             if(numbytes == -1)
             {
@@ -210,6 +218,7 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<strin
                    res += rcvmsg[i];
                }
             }
+            cout << res + "  Result" << endl ;
             // pthread_mutex_lock(&print_mutex);
             // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
             // pthread_mutex_unlock(&print_mutex);
@@ -236,22 +245,133 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<strin
             string files_to_send = file_to_be_sent_stream.str() ;
             if (send(new_fd, files_to_send.c_str(), files_to_send.length(), 0) == -1)
                     perror("send");
-
+            cout << "Hi_inc" << endl ;
             if (counter > 0)
             {
-                pthread_mutex_lock(&buffer_mutex);
-                buffer.push(depth2_files);
-                pthread_mutex_unlock(&buffer_mutex);
+                pthread_mutex_lock(&buffer_in_to_out_mutex);
+                buffer_in_to_out.push(make_pair(new_fd,depth2_files));
+                pthread_mutex_unlock(&buffer_in_to_out_mutex);
             }
+      
+
 
             //Recieve here  the file to be searched for at depth 2
             //process, and reply like in phase 2
+            
+            int numbytes_depth2;
+            char rcvmsg_depth2[MAXDATASIZE] ;
+            numbytes_depth2 = recv(new_fd, rcvmsg_depth2, MAXDATASIZE-1, 0);
+            string res_depth2 = "";
+            if(numbytes_depth2 == -1)
+            {
+               perror("Could not recieve");
+            }
+            else
+            {
+              for (int i=0;i<numbytes_depth2;i++)
+               {
+                   res_depth2 += rcvmsg_depth2[i];
+               }
+            }
+            istringstream fil_dep2_search_stream(res);
+            stringstream file_to_be_sent_dep2_stream;
+            while(fil_dep2_search_stream){
+               string  file ;
+               fil_dep2_search_stream >> file ;
+               for(int i = 0 ; i < files_owned.size() ; i++){
+                    if(files_owned[i] == file) {
+                        file_to_be_sent_dep2_stream << file << " " ;
+                        
+                    }
+               }
+            }
+            string files_to_send_dep2 = file_to_be_sent_dep2_stream.str() ;
+            if (send(new_fd, files_to_send_dep2.c_str(), files_to_send_dep2.length(), 0) == -1)
+                    perror("send");
 
+            while(true){
+                pthread_mutex_lock(&map_out_to_in_mutex);
+                if (map_out_to_in.count(new_fd))
+                {
+                   pthread_mutex_unlock(&map_out_to_in_mutex);
+                   continue;
+                }
+                vector<string> responses = map_out_to_in[new_fd] ;
+                //process and reply with what files we got by searching our neighbors
+                pthread_mutex_unlock(&map_out_to_in_mutex);
+                stringstream files_found_depth2_stream ;
+                for(int i = 0 ; i < responses.size() ; i++){
+                    files_found_depth2_stream << responses[i] << " || " ;
+                }
+                string files_found_depth2 = files_found_depth2_stream.str() ;
+                if (send(new_fd, files_found_depth2.c_str(), files_found_depth2.length(), 0) == -1)
+                    perror("send");
+            }
 
             close(new_fd);
+
+}
+
+void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<string,vector<int>>> files,vector<string> files_owned)
+{
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    int new_fd;
+    stringstream ss;
+    ss << clientid <<" " << uniqueid;
+    string s = ss.str() ;
+    vector<thread> threads ;
+    while(true)
+    {
+        
+        sin_size = sizeof their_addr;
+        new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
+/*        if (!fork())
+        {
+            //wait for reply with list of files to search for
+            //send file I found
+            close(sock_fd); // child doesn't need the listener
+            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
+                perror("send");
+            int numbytes;
+            char rcvmsg[MAXDATASIZE] ;
+            numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
+            string res = "";
+            if(numbytes == -1)
+            {
+               perror("Could not recieve");
+            }
+            else
+            {
+              for (int i=0;i<numbytes;i++)
+               {
+                   res += rcvmsg[i];
+               }
+            }
+            // pthread_mutex_lock(&print_mutex);
+            // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
+            // pthread_mutex_unlock(&print_mutex);
+            istringstream fil_search_stream(res);
+            stringstream file_to_be_sent_stream;
+            while(fil_search_stream){
+               string  file ;
+               fil_search_stream >> file ;
+               for(int i = 0 ; i < files_owned.size() ; i++){
+                    if(files_owned[i] == file) {
+                        file_to_be_sent_stream << file << " " ;
+                        
+                    }
+               }
+            }
+            string files_to_send = file_to_be_sent_stream.str() ;
+            if (send(new_fd, files_to_send.c_str(), files_to_send.length(), 0) == -1)
+                    perror("send");
+                                        
+            close(new_fd);
             exit(0);
-        }
-        close(new_fd);
+        }*/
+        threads.emplace_back(thread(sub_incoming_threadfn,new_fd,clientid,uniqueid,files,files_owned,s));
+        
 
     }
 }
@@ -262,7 +382,7 @@ int main(int argc, char *argv[])
 {
     int client_id,port,unique_id,num_neighbor,num_files_needed ;
     vector<Neighbour> neighbors ;
-    vector<pair<string,vector<Neighbour>>> files_needed ;
+    vector<pair<string,vector<int>>> files_needed ;
     vector<pair<string,int>> files_found ;
     string line;
     ifstream fin;
@@ -285,7 +405,7 @@ int main(int argc, char *argv[])
     {
         string file_name ;
         fin >> file_name ;
-        vector<Neighbour> n ;
+        vector<int> n ;
         files_needed.push_back(make_pair(file_name,n));
     }
 
@@ -357,9 +477,9 @@ int main(int argc, char *argv[])
                     istringstream details(s);
                     int cl_id,un_id;
                     details >> cl_id >> un_id;
-                    pthread_mutex_lock(&print_mutex);
+                    //pthread_mutex_lock(&print_mutex);
                     cout<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
-                    pthread_mutex_unlock(&print_mutex);
+                    //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
                     stringstream f ;
                     for(int i = 0 ; i < files_needed.size(); i++){
@@ -370,8 +490,10 @@ int main(int argc, char *argv[])
                     // cout<<"Sending a search request to "<<u.GetUniqueID()<<"\n"<<f_send<<endl; 
                     // pthread_mutex_unlock(&print_mutex);
                     u.sendMessage(f_send);
-                            //u.setDepth1() ;   
+                            //u.setDepth1() ; 
+                    cout << "Blocked" << endl ; 
                     s = u.rcvMessage(); //reply from files it asked for.
+                    cout << "Hi_out" << endl ; 
                     // pthread_mutex_lock(&print_mutex);
                     // cout<<"Received reply from "<<u.GetUniqueID()<<"\n"<<s<<endl;
                     // pthread_mutex_unlock(&print_mutex);
@@ -381,7 +503,7 @@ int main(int argc, char *argv[])
                         reply_stream >> file_name ;
                         for(int i = 0 ; i < files_needed.size() ; i++){
                             if(files_needed[i].first == file_name){
-                                files_needed[i].second.push_back(u) ;
+                                files_needed[i].second.push_back(u.GetUniqueID()) ;
                                 break;
                             }
                         }
@@ -428,41 +550,111 @@ int main(int argc, char *argv[])
                }
         }*/
         if (allconnected)
-        break;
+        {
+            cout<< "Made all connections" << endl ;
+            break ;
+        }
+    }
+    
+    bool found_at_depth1[files_needed.size()] ;
+    for(int i = 0 ; i < files_needed.size() ; i++){
+            sort(files_needed[i].second.begin(),files_needed[i].second.end());
+            if(!files_needed[i].second.empty()) {
+                found_at_depth1[i] = true ;
+                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 1" << endl ;
+            }
+            else {
+                found_at_depth1[i] = false ; 
+                cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0" << endl ;
+            }
+            //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
     }
 
 
-
-    for(int i = 0 ; i < files_needed.size() ; i++){
-            sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
-            if(!files_needed[i].second.empty()) {
-                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0].GetUniqueID() <<" with MD5 0 at depth 1\n" ;
-            }
-            else {
-                cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
-            }
-            //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
-        }
-
     while (true){
-        pthread_mutex_lock(&buffer_mutex);
-        if (buffer.size() == 0)
+        pthread_mutex_lock(&buffer_in_to_out_mutex);
+        if (buffer_in_to_out.size() == 0)
         {
-            pthread_mutex_unlock(&buffer_mutex);
+            pthread_mutex_unlock(&buffer_in_to_out_mutex);
             continue;
         }
-        string curr = buffer.front();
-        buffer.pop();
-        pthread_mutex_unlock(&buffer_mutex);
+        string curr = buffer_in_to_out.front().second;
+        int new_fd = buffer_in_to_out.front().first;
+        buffer_in_to_out.pop();
+        pthread_mutex_unlock(&buffer_in_to_out_mutex);
+        vector<string> responses ;
+        int count = 0 ; 
         for (auto &u:neighbors)
         {
             if(u.isConnected()){
                 u.sendMessage(curr);
-                string response = u.rcvMessage();
-                // print the response after processing
+                if(!u.checkDepth2_1()){
+                    string response = u.GetUniqueID() + " " + u.rcvMessage();
+                    u.setDepth2_1() ;
+                   // print the response after processing
+                   count++ ;
+                   responses.push_back(response) ;
+                }    
+                
+            }
+        }
+        if(count == neighbors.size()){
+              pthread_mutex_lock(&map_out_to_in_mutex);
+              map_out_to_in[new_fd] = responses ;
+              pthread_mutex_unlock(&map_out_to_in_mutex);
+              break ; 
+        }
+    }
+
+    while(true){
+      int count = 0 ;
+      for(auto &u:neighbors){
+          if(u.isConnected()){
+               string files_from_depth2 = u.rcvMessage() ;
+               istringstream files_from_depth2_stream(files_from_depth2) ;
+               int client_depth2 ;
+               string s1 ;
+               files_from_depth2_stream >> s1 ;
+               cout << s1 << endl ;
+               client_depth2 =  stoi(s1) ;
+               string files_data ;
+               while(files_from_depth2_stream){
+                    files_from_depth2_stream >> files_data ;
+                    if(files_data == "||"){
+                        files_from_depth2_stream >> files_data ;
+                        cout << files_data << endl ;
+                        client_depth2 =  stoi(files_data) ;
+                        continue ;
+                    }
+                    for(int i = 0 ; i < files_needed.size() ; i++){
+                            if(files_needed[i].first == files_data){
+                                files_needed[i].second.push_back(client_depth2) ;
+                                break;
+                            }
+                    }
+               }
+               count++ ;
+          }
+      }
+      if(count == neighbors.size()){
+          break ;
+      }
+    }
+
+    for(int i = 0 ; i < files_needed.size() ; i++){
+        if(!found_at_depth1[i]){
+            sort(files_needed[i].second.begin(),files_needed[i].second.end());
+            if(!files_needed[i].second.empty()) {
+                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 2\n" ;
+            }
+            else {
+                cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
             }
         }
     }
+
+
+
 
     recving.join();
 
