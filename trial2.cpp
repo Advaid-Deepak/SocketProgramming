@@ -173,9 +173,27 @@ bool compareFunction(Neighbour n1, Neighbour n2)
 {
     return n1.compareNeighbours(n1,n2) ;
 }
-void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid, vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned, string s)
+
+
+void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned)
 {
-           if (send(new_fd, s.c_str(), s.length(), 0) == -1)
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    int new_fd;
+    stringstream ss;
+    ss << clientid <<" " << uniqueid;
+    string s = ss.str() ;
+    while(true)
+    {
+        
+        sin_size = sizeof their_addr;
+        new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
+        if (!fork())
+        {
+            //wait for reply with list of files to search for
+            //send file I found
+            close(sock_fd); // child doesn't need the listener
+            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
                 perror("send");
             int numbytes;
             char rcvmsg[MAXDATASIZE] ;
@@ -231,69 +249,9 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid, vector<pair<s
 
 
             close(new_fd);
-
-}
-
-void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<pair<string,vector<Neighbour>>> files,vector<string> files_owned)
-{
-    struct sockaddr_storage their_addr; // connector's address information
-    socklen_t sin_size;
-    int new_fd;
-    stringstream ss;
-    ss << clientid <<" " << uniqueid;
-    string s = ss.str() ;
-    vector<thread> threads ;
-    while(true)
-    {
-        
-        sin_size = sizeof their_addr;
-        new_fd = accept(sock_fd, (struct sockaddr *)&their_addr, &sin_size);
-/*        if (!fork())
-        {
-            //wait for reply with list of files to search for
-            //send file I found
-            close(sock_fd); // child doesn't need the listener
-            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
-                perror("send");
-            int numbytes;
-            char rcvmsg[MAXDATASIZE] ;
-            numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
-            string res = "";
-            if(numbytes == -1)
-            {
-               perror("Could not recieve");
-            }
-            else
-            {
-              for (int i=0;i<numbytes;i++)
-               {
-                   res += rcvmsg[i];
-               }
-            }
-            // pthread_mutex_lock(&print_mutex);
-            // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
-            // pthread_mutex_unlock(&print_mutex);
-            istringstream fil_search_stream(res);
-            stringstream file_to_be_sent_stream;
-            while(fil_search_stream){
-               string  file ;
-               fil_search_stream >> file ;
-               for(int i = 0 ; i < files_owned.size() ; i++){
-                    if(files_owned[i] == file) {
-                        file_to_be_sent_stream << file << " " ;
-                        
-                    }
-               }
-            }
-            string files_to_send = file_to_be_sent_stream.str() ;
-            if (send(new_fd, files_to_send.c_str(), files_to_send.length(), 0) == -1)
-                    perror("send");
-                                        
-            close(new_fd);
             exit(0);
-        }*/
-        threads.emplace_back(thread(sub_incoming_threadfn,new_fd,clientid,uniqueid,files,files_owned,s));
-        
+        }
+        close(new_fd);
 
     }
 }
@@ -473,6 +431,8 @@ int main(int argc, char *argv[])
         break;
     }
 
+
+
     for(int i = 0 ; i < files_needed.size() ; i++){
             sort(files_needed[i].second.begin(),files_needed[i].second.end(),compareFunction);
             if(!files_needed[i].second.empty()) {
@@ -483,7 +443,6 @@ int main(int argc, char *argv[])
             }
             //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
         }
-
 
     while (true){
         pthread_mutex_lock(&buffer_mutex);
