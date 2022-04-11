@@ -533,7 +533,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                //cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0].GetUniqueID() <<" with MD5 0 at depth 1\n" ;
+                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0].getUniqueID() <<" with MD5 0 at depth 1\n" ;
 
             }
             else {
