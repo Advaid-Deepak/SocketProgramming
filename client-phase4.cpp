@@ -197,6 +197,70 @@ int Neighbour::GetUniqueID(){
     return uniqueid ;
 }
 
+bool check_message(string& message, string depth, string type){
+     istringstream mssg(message) ;
+     int i = 0 ;
+     bool check = true ;
+     string m = "" ;
+     string part ;
+     while(mssg){
+         mssg >>  part ;
+         if(i == 0){
+             if (part != depth) return false ;
+             else continue ;
+         }
+         if(i == 1){
+             if(part != type) return  false ;
+             else continue ;
+         }
+         m = m + " " + part ;
+     }
+     message = m ;
+     return check ;
+}
+
+void outgoing_depth2_1_thread(vector<Neighbour> neighbors ){
+        while (true){
+        pthread_mutex_lock(&buffer_in_to_out_mutex);
+        if (buffer_in_to_out.size() == 0)
+        {
+            pthread_mutex_unlock(&buffer_in_to_out_mutex);
+            continue;
+        }
+        string curr = buffer_in_to_out.front().second + " ";
+        int new_fd = buffer_in_to_out.front().first;
+        buffer_in_to_out.pop();
+        pthread_mutex_unlock(&buffer_in_to_out_mutex);
+        cout << "My neighbour need this " << curr << endl ;
+        vector<string> responses ;
+        int count = 0 ; 
+        for (auto &u:neighbors)
+        {
+            
+            u.sendMessage(curr);
+            string r = u.rcvMessage() ;
+            cout << r << " Depth2 part 1 over" << endl ;
+            count++ ;
+            if(r.find_first_not_of (' ') != r.npos ){
+                  string response = to_string(u.GetUniqueID()) + "    " + r;
+                  cout << "Response " << response << endl ;
+                  u.setDepth2_1() ;
+                  // print the response after processing
+                  responses.push_back(response) ;
+            }
+            
+        
+                
+            
+        }
+        if(!responses.empty()){
+              pthread_mutex_lock(&map_out_to_in_mutex);
+              map_out_to_in[new_fd] = responses ;
+              pthread_mutex_unlock(&map_out_to_in_mutex);
+              //break ; 
+        }
+    }
+}
 
 void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string> files_owned, string s)
 {
@@ -218,7 +282,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                    res += rcvmsg[i];
                }
             }
-            //cout << res + "  Result" << endl ;
+            cout << res + "  Result" << endl ;
             // pthread_mutex_lock(&print_mutex);
             // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
             // pthread_mutex_unlock(&print_mutex);
@@ -242,6 +306,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                }
             }
             string depth2_files = file_for_depth2_stream.str() ;
+            cout << " Files I don't have "<< depth2_files << endl ;
             string files_to_send = file_to_be_sent_stream.str() + "  " ;
 
             //cout<<"Sending "<< files_to_send<<endl;
@@ -276,7 +341,8 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                    res_depth2 += rcvmsg_depth2[i];
                }
             }
-            istringstream fil_dep2_search_stream(res);
+            cout << res_depth2 << " Depth 2" << endl ;
+            istringstream fil_dep2_search_stream(res_depth2);
             stringstream file_to_be_sent_dep2_stream;
             while(fil_dep2_search_stream){
                string  file ;
@@ -294,19 +360,22 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
 
             while(true){
                 pthread_mutex_lock(&map_out_to_in_mutex);
-                if (map_out_to_in.count(new_fd))
+                if (!map_out_to_in.count(new_fd))
                 {
                    pthread_mutex_unlock(&map_out_to_in_mutex);
                    continue;
                 }
+                int i = map_out_to_in.count(new_fd) ;
                 vector<string> responses = map_out_to_in[new_fd] ;
                 //process and reply with what files we got by searching our neighbors
                 pthread_mutex_unlock(&map_out_to_in_mutex);
                 stringstream files_found_depth2_stream ;
+                //cout << "Size of responses " << responses.size() << " " << i << endl ;
                 for(int i = 0 ; i < responses.size() ; i++){
                     files_found_depth2_stream << responses[i] << " || " ;
                 }
                 string files_found_depth2 = files_found_depth2_stream.str() + " " ;
+                //cout << files_found_depth2 << " Sending for depth 2 part 2" << endl ;
                 if (send(new_fd, files_found_depth2.c_str(), files_found_depth2.length(), 0) == -1)
                     perror("send");
             }
@@ -510,7 +579,45 @@ int main(int argc, char *argv[])
                     }
                     j++ ;
                 }
-                count++ ;
+                count++ ;while (true){
+        pthread_mutex_lock(&buffer_in_to_out_mutex);
+        if (buffer_in_to_out.size() == 0)
+        {
+            pthread_mutex_unlock(&buffer_in_to_out_mutex);
+            continue;
+        }
+        string curr = buffer_in_to_out.front().second + " ";
+        int new_fd = buffer_in_to_out.front().first;
+        buffer_in_to_out.pop();
+        pthread_mutex_unlock(&buffer_in_to_out_mutex);
+        vector<string> responses ;
+        int count = 0 ; 
+        for (auto &u:neighbors)
+        {
+            
+            u.sendMessage(curr);
+            string r = u.rcvMessage() ;
+            cout << r << " Depth2 part 1 over" << endl ;
+            count++ ;
+            if(r != " "){
+                  string response = to_string(u.GetUniqueID()) + "    " + r;
+                  cout << "Response " << response << endl ;
+                  u.setDepth2_1() ;
+                  // print the response after processing
+                  responses.push_back(response) ;
+            }
+            
+        
+                
+            
+        }
+        if(!responses.empty()){
+              pthread_mutex_lock(&map_out_to_in_mutex);
+              map_out_to_in[new_fd] = responses ;
+              pthread_mutex_unlock(&map_out_to_in_mutex);
+              break ; 
+        }
+    }
             }
             */
         }
@@ -581,67 +688,36 @@ int main(int argc, char *argv[])
             //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
     }
 
-
-    while (true){
-        pthread_mutex_lock(&buffer_in_to_out_mutex);
-        if (buffer_in_to_out.size() == 0)
-        {
-            pthread_mutex_unlock(&buffer_in_to_out_mutex);
-            continue;
-        }
-        string curr = buffer_in_to_out.front().second + " ";
-        int new_fd = buffer_in_to_out.front().first;
-        buffer_in_to_out.pop();
-        pthread_mutex_unlock(&buffer_in_to_out_mutex);
-        vector<string> responses ;
-        int count = 0 ; 
-        for (auto &u:neighbors)
-        {
-            
-            u.sendMessage(curr);
-            string r = u.rcvMessage() ;
-            count++ ;
-            if(r != " "){
-                  string response = u.GetUniqueID() + " " + r;
-                  u.setDepth2_1() ;
-                  // print the response after processing
-                  responses.push_back(response) ;
-            }
-            
-        
-                
-            
-        }
-        if(!responses.empty()){
-              pthread_mutex_lock(&map_out_to_in_mutex);
-              map_out_to_in[new_fd] = responses ;
-              pthread_mutex_unlock(&map_out_to_in_mutex);
-              break ; 
-        }
-    }
+    //separate thread
+    thread out_dep2_1(outgoing_depth2_1_thread,neighbors) ;
 
     while(true){
       int count = 0 ;
       for(auto &u:neighbors){
           if(u.isConnected()){
                string files_from_depth2 = u.rcvMessage() ;
+               //cout << files_from_depth2 << " Message recieved " << endl ;
                istringstream files_from_depth2_stream(files_from_depth2) ;
                int client_depth2 ;
                string s1 ;
                files_from_depth2_stream >> s1 ;
+               if(s1.find_first_not_of (' ') == s1.npos || s1 == "") continue ;
                cout << "Converting to integer "<<s1 << endl ;
                client_depth2 =  stoi(s1) ;
                string files_data ;
                while(files_from_depth2_stream){
                     files_from_depth2_stream >> files_data ;
                     if(files_data == "||"){
+                        if(files_from_depth2_stream.str().empty()) break ;
                         files_from_depth2_stream >> files_data ;
+                        if(files_data == "||") break ;
                         cout <<"Converting to integer" <<files_data << endl ;
                         client_depth2 =  stoi(files_data) ;
                         continue ;
                     }
                     for(int i = 0 ; i < files_needed.size() ; i++){
                             if(files_needed[i].first == files_data){
+                                cout << "Found one" << endl ;
                                 files_needed[i].second.push_back(client_depth2) ;
                                 break;
                             }
