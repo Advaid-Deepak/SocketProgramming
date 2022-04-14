@@ -19,6 +19,12 @@ pthread_mutex_t map_out_to_in_mutex;
 
 pthread_mutex_t depth2_1_mutex;
 
+pthread_mutex_t glob_neigh_d1_mutex;
+vector<pair<int,int>> d1_neigh_data;      //uniqid , port
+
+pthread_mutex_t glob_neigh_d2_mutex;
+set<pair<int,int>,> d2_neigh_data;
+
 //vector<thread> threads_global ;
 
 class Neighbour{
@@ -313,6 +319,18 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                    }
                    close(new_fd) ;
                    return ;
+            } else if (clientid_incoming == "port_d2"){
+                
+                string res = "";
+                pthread_mutex_lock(&glob_neigh_d1_mutex);
+                for (auto &u:d1_neigh_data){
+                    res += to_string(u.first) + " " + to_string(u.second) + " ";
+                }
+
+                send(new_fd,res.c_str(),res.length(),0);
+                close(new_fd);
+                return;
+
             }
             else{
                fil_search_stream >> port_incoming  ;
@@ -587,7 +605,7 @@ int main(int argc, char *argv[])
                     cout<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
                     //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
-
+                    d1_neigh_data.push_back({un_id,u.getPort()});
                     // pthread_mutex_lock(&print_mutex);
                     // cout<<s<<endl;
                     // pthread_mutex_unlock(&print_mutex);
@@ -672,6 +690,24 @@ int main(int argc, char *argv[])
             //cout<< "Made all connections" << endl ;
             break ;
         }
+    }
+
+    for (auto &u:d1_neigh_data){
+        Neighbour p(-1,u.second);
+        p.setUniqueID(u.first);
+        p.rcvMessage();
+        p.sendMessage("port_d2");
+        string s = p.rcvMessage();
+        stringstream ss(s);
+        while (ss){
+            int uid,prt;
+            ss >> uid >> prt;
+            if (uid != unique_id){
+                d2_neigh_data.insert({uid,prt});
+            }
+        }
+
+
     }
 
     for (auto &u:neighbors)
