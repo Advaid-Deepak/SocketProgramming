@@ -567,6 +567,43 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<string> fi
     }
 }
 
+void downloadFile(int uniqueid, string filname){
+    Neighbour n(-1,uniqueid_portmap[uniqueid]);
+    n.setUniqueID(uniqueid);
+    n.makeConnection();
+    string req = "filereq " + filname;
+    string p = n.rcvMessage();
+    n.sendMessage(req);
+    p = n.rcvMessage();
+    if (p.substr(0,2)=="No")
+    {
+        //cout<<"File not found"<<endl;
+        return;
+    }
+    //cout<<"File found!"<<endl;
+    string dirname = file_path_search + '/'+"Downloaded";
+    mkdir(dirname.c_str(),0777);
+    fstream fout(dirname+'/'+filname,ios::out|ios::binary);
+    n.sendMessage("OK");
+    p = n.rcvMessage();
+    //cout<<"Recieved "<<p<<endl;
+    stringstream ss(p);
+    int length, num_chunks;
+    ss >> length >> num_chunks;
+    n.sendMessage("OK");
+    for (int i=0;i<num_chunks;i++)
+    {
+        //cout<<"RCV Packet num "<<i<<endl;
+        string s = n.rcvMessage();
+        for (int j=0;j<s.length();j++){
+            fout.put(s[j]);
+        }
+        n.sendMessage("OK");
+    }
+
+    fout.close();
+}
+
 
 
 int main(int argc, char *argv[])
@@ -808,6 +845,7 @@ int main(int argc, char *argv[])
         //cout<<"Done with neighbour "<<u.GetUniqueID()<<endl;
     }
     
+    vector<pair<int,string>> to_download_d1,to_download_d2;
     bool found_at_depth1[files_needed.size()] ;
     for(int i = 0 ; i < files_needed.size() ; i++){
             sort(files_needed[i].second.begin(),files_needed[i].second.end());
@@ -815,42 +853,10 @@ int main(int argc, char *argv[])
                 found_at_depth1[i] = true ;
                 int uid = files_needed[i].second[0];
                 string filname = files_needed[i].first;
-                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 1" << endl ;
+                //cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 1" << endl ;
                 //cout<<"Going to request for file now!"<<endl;
-                Neighbour n(-1,uniqueid_portmap[uid]);
-                n.setUniqueID(uid);
-                n.makeConnection();
-                string req = "filereq " + filname;
-                string p = n.rcvMessage();
-                n.sendMessage(req);
-                p = n.rcvMessage();
-                if (p.substr(0,2)=="No")
-                {
-                    //cout<<"File not found"<<endl;
-                    continue;
-                }
-                //cout<<"File found!"<<endl;
-                string dirname = file_path_search + '/'+"Downloaded";
-                mkdir(dirname.c_str(),0777);
-                fstream fout(dirname+'/'+filname,ios::out|ios::binary);
-                n.sendMessage("OK");
-                p = n.rcvMessage();
-                //cout<<"Recieved "<<p<<endl;
-                stringstream ss(p);
-                int length, num_chunks;
-                ss >> length >> num_chunks;
-                n.sendMessage("OK");
-                for (int i=0;i<num_chunks;i++)
-                {
-                    //cout<<"RCV Packet num "<<i<<endl;
-                    string s = n.rcvMessage();
-                    for (int j=0;j<s.length();j++){
-                        fout.put(s[j]);
-                    }
-                    n.sendMessage("OK");
-                }
-
-                fout.close();
+                //downloadFile(uid,filname);
+                to_download_d1.push_back({uid,filname});
                 
             }
             else {
@@ -870,46 +876,10 @@ int main(int argc, char *argv[])
         if(!found_at_depth1[i]){
             sort(files_needed[i].second.begin(),files_needed[i].second.end());
             if(!files_needed[i].second.empty()) {
-                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 2\n" ;
+                //cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 2\n" ;
                 int uid = files_needed[i].second[0];
                 string filname = files_needed[i].first;
-                //cout<<"Going to request for file now!"<<endl;
-                Neighbour n(-1,uniqueid_portmap[uid]);
-                n.setUniqueID(uid);
-                n.makeConnection();
-                string req = "filereq " + filname;
-                string p = n.rcvMessage();
-                
-                n.sendMessage(req);
-                
-                p = n.rcvMessage();
-                if (p.substr(0,2)=="No")
-                {
-                    //cout<<"File not found"<<endl;
-                    continue;
-                }
-                //cout<<"File found!"<<endl;
-                string dirname = file_path_search + '/'+"Downloaded";
-                mkdir(dirname.c_str(),0777);
-                fstream fout(dirname+'/'+filname,ios::out|ios::binary);
-                n.sendMessage("OK");
-                p = n.rcvMessage();
-                //cout<<"Recieved "<<p<<endl;
-                stringstream ss(p);
-                int length, num_chunks;
-                ss >> length >> num_chunks;
-                n.sendMessage("OK");
-                for (int i=0;i<num_chunks;i++)
-                {
-                    string s = n.rcvMessage();
-                    for (int j=0;j<s.length();j++){
-                        fout.put(s[j]);
-                    }
-                    n.sendMessage("OK");
-                }
-
-                fout.close();
-
+                to_download_d2.push_back({uid,filname});
 
 
             }
@@ -919,9 +889,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    for (auto u:uniqueid_portmap)
-    {
-        cout<<u.first<<" "<<u.second<<endl;
+    for (auto u:to_download_d1){
+        downloadFile(u.first,u.second);
+        cout << "Found " <<  u.second <<" at "<<u.first <<" with MD5 0 at depth 1" << endl ;
+    }
+
+    for (auto u:to_download_d2){
+        downloadFile(u.first,u.second);
+        cout << "Found " <<  u.second <<" at "<<u.first <<" with MD5 0 at depth 2" << endl ;
     }
 
 
