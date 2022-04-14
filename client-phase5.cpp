@@ -333,7 +333,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
             else if (clientid_incoming == "filereq"){
                 string reqfilname;
                 fil_search_stream >> reqfilname;
-                //cout<<"Recieved a request for "<<reqfilname<<endl;
+                cout<<"Recieved a request for "<<reqfilname<<endl;
                 
                 //check if reqfilename exists
                 bool found = false ;
@@ -350,8 +350,11 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                     return;
                 }
                 string msg = "Yes";
+                cout<<"Sending "<<msg<<endl;
                 send(new_fd,msg.c_str(),msg.length(),0);
-                recv(new_fd,rcvmsg,MAXDATASIZE-1,0);
+                int num = recv(new_fd,rcvmsg,MAXDATASIZE-1,0);
+                string r = conv_str(rcvmsg,num);
+                cout<<"Recieved "<<r<<endl;
                 //Send filename with its length
                 string fil = file_path_search + "/" + reqfilname;
                 fstream fin(fil, ios::in | ios::binary);
@@ -364,15 +367,16 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 fin.close();
                 
                 int maxpacketsize = 4*MAXDATASIZE/5;
-                int numpackets = ceil(length/maxpacketsize);
+                int numpackets = ceil(1.0*length/(1.0*maxpacketsize));
                 msg = to_string(length) + " " + to_string(numpackets);
                 send(new_fd,msg.c_str(),msg.length(),0);
+                cout<<"Sent: "<<msg<<endl;
                 //cout<<"Sent: "<<msg<<endl;
-
+                recv(new_fd,rcvmsg,MAXDATASIZE-1,0);
                 int index = 0;
                 for (int i=0;i<numpackets;i++)
                 {
-                    //cout<<"Send Packet number " <<i<<endl;
+                    cout<<"Send Packet number " <<i<<endl;
                     string pack = "";
                     for (int j=0;j<maxpacketsize && index < length;j++,index++){
                         pack += buffer[index];
@@ -835,6 +839,7 @@ int main(int argc, char *argv[])
                 stringstream ss(p);
                 int length, num_chunks;
                 ss >> length >> num_chunks;
+                n.sendMessage("OK");
                 for (int i=0;i<num_chunks;i++)
                 {
                     //cout<<"RCV Packet num "<<i<<endl;
@@ -893,6 +898,7 @@ int main(int argc, char *argv[])
                 stringstream ss(p);
                 int length, num_chunks;
                 ss >> length >> num_chunks;
+                n.sendMessage("OK");
                 for (int i=0;i<num_chunks;i++)
                 {
                     string s = n.rcvMessage();
