@@ -10,12 +10,13 @@ using namespace std;
 pthread_mutex_t print_mutex;
 vector<pair<string,vector<int>>> files_needed ;
 
-queue<tuple<string,string,string>> buffer_in_to_out;
+queue<tuple<string,string,string,string>> buffer_in_to_out;
 pthread_mutex_t buffer_in_to_out_mutex;
 pthread_mutex_t files_needed_mutex ;
 
-map<int,vector<string>> map_out_to_in ;
-pthread_mutex_t map_out_to_in_mutex;
+
+map<int,int> uniqueid_portmap ;
+pthread_mutex_t portmap_mutex;
 
 pthread_mutex_t depth2_1_mutex;
 
@@ -246,8 +247,9 @@ void outgoing_depth2_1_thread(vector<Neighbour> neighbors ){
             continue;
         }
         //cout << "Entered here" << endl;
-        string curr = get<2>(buffer_in_to_out.front()) + " ";
-        string  port_send = get<1>(buffer_in_to_out.front());
+        string curr = get<3>(buffer_in_to_out.front()) + " ";
+        string  port_send = get<2>(buffer_in_to_out.front());
+        string  uniqueid_send = get<1>(buffer_in_to_out.front());
         string clientid_send = get<0>(buffer_in_to_out.front());
         buffer_in_to_out.pop();
         pthread_mutex_unlock(&buffer_in_to_out_mutex);
@@ -258,7 +260,7 @@ void outgoing_depth2_1_thread(vector<Neighbour> neighbors ){
         for (auto &u:neighbors)
         {
             //cout << "My neighbour need this " << curr << endl ;
-            u.sendMessage(clientid_send + " "+port_send + " " + curr);
+            u.sendMessage(clientid_send +" "+ uniqueid_send +" "+port_send + " " + curr);
         }
         //pthread_mutex_lock(&depth2_1_mutex) ;
     }
@@ -271,6 +273,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 perror("send");
             string port_incoming ;
             string clientid_incoming ;
+            string uniqueid_incoming ;
             int numbytes;
             char rcvmsg[MAXDATASIZE] ;
             numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
@@ -315,6 +318,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                    return ;
             }
             else{
+               fil_search_stream >> uniqueid_incoming ;
                fil_search_stream >> port_incoming  ;
             stringstream file_to_be_sent_stream;
             stringstream file_for_depth2_stream;
@@ -348,7 +352,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 //cout << "Trying to lock" << endl ;
                 pthread_mutex_lock(&buffer_in_to_out_mutex);
                 //cout << "Added to buffer" << endl ;
-                buffer_in_to_out.push(make_tuple(clientid_incoming,port_incoming ,depth2_files));
+                buffer_in_to_out.push(make_tuple(clientid_incoming,uniqueid_incoming,port_incoming ,depth2_files));
                 pthread_mutex_unlock(&buffer_in_to_out_mutex);
             }
       
@@ -385,8 +389,13 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
             istringstream fil_dep2_search_stream(res_depth2);
             string new_client ;
             fil_dep2_search_stream >> new_client ;
+            string new_uniqueid ;
+            fil_dep2_search_stream >> new_uniqueid  ;
             string new_port ;
             fil_dep2_search_stream >> new_port ;
+            pthread_mutex_lock(&portmap_mutex);
+            uniqueid_portmap[stoi(new_uniqueid)] =  stoi(new_port);
+            pthread_mutex_unlock(&portmap_mutex);
             stringstream file_to_be_sent_dep2_stream;
             while(fil_dep2_search_stream){
                string  file ;
@@ -403,6 +412,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 //cout << "I have got this " << files_to_send_dep2 << endl ;
                 //pthread_mutex_lock(&depth2_1_mutex);
                 Neighbour new_neighbour(stoi(new_client),stoi(new_port)) ;
+                new_neighbour.setUniqueID(stoi(new_uniqueid)) ;
                 new_neighbour.makeConnection();
                 new_neighbour.sendMessage(files_to_send_dep2);
             }
@@ -587,6 +597,9 @@ int main(int argc, char *argv[])
                     cout<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
                     //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
+                    pthread_mutex_lock(&portmap_mutex);
+                    uniqueid_portmap[un_id] = u.GetPort() ;
+                    pthread_mutex_unlock(&portmap_mutex);
 
                     // pthread_mutex_lock(&print_mutex);
                     // cout<<s<<endl;
@@ -680,7 +693,7 @@ int main(int argc, char *argv[])
         for(int i = 0 ; i < files_needed.size(); i++){
             f << files_needed[i].first << " " ;
         }
-        string f_send = to_string(client_id) + " "+ to_string(port) + " " +  f.str() + " ";
+        string f_send = to_string(client_id) + " "+to_string(unique_id) + " "+ to_string(port) + " " +  f.str() + " ";
         // pthread_mutex_lock(&print_mutex);
         // cout<<"Sending a search request to "<<u.GetUniqueID()<<"\n"<<f_send<<endl; 
         // pthread_mutex_unlock(&print_mutex);
