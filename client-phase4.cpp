@@ -14,8 +14,9 @@ queue<tuple<string,string,string>> buffer_in_to_out;
 pthread_mutex_t buffer_in_to_out_mutex;
 pthread_mutex_t files_needed_mutex ;
 
-map<int,vector<string>> map_out_to_in ;
-pthread_mutex_t map_out_to_in_mutex;
+
+map<int,int> uniqueid_portmap ;
+pthread_mutex_t portmap_mutex;
 
 pthread_mutex_t depth2_1_mutex;
 
@@ -23,7 +24,7 @@ pthread_mutex_t glob_neigh_d1_mutex;
 vector<pair<int,int>> d1_neigh_data;      //uniqid , port
 
 pthread_mutex_t glob_neigh_d2_mutex;
-set<pair<int,int>,> d2_neigh_data;
+set<pair<int,int>> d2_neigh_data;
 
 //vector<thread> threads_global ;
 
@@ -277,6 +278,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 perror("send");
             string port_incoming ;
             string clientid_incoming ;
+            string uniqueid_incoming ;
             int numbytes;
             char rcvmsg[MAXDATASIZE] ;
             numbytes = recv(new_fd, rcvmsg, MAXDATASIZE-1, 0);
@@ -299,24 +301,17 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
             // pthread_mutex_unlock(&print_mutex);
             istringstream fil_search_stream(res);
             fil_search_stream >> clientid_incoming  ;
+            
             if(clientid_incoming == "depth2"){
-                   string client_id_replied ;
-                   string unique_id_replied ;
-                   fil_search_stream >> client_id_replied ;
-                   fil_search_stream >> unique_id_replied ;
-                   string file_reply ;
-                   while(fil_search_stream){
-                       fil_search_stream >> file_reply ;
-                       pthread_mutex_lock(&files_needed_mutex) ;
-                       for(int i = 0 ; i < files_needed.size() ; i++){
-                            if(files_needed[i].first == file_reply){
-                                //cout << "Found one" << endl ;
-                                files_needed[i].second.push_back(stoi(unique_id_replied)) ;
-                                break;
-                            }
-                    }
-                      pthread_mutex_unlock(&files_needed_mutex) ;
+                   string file ;
+                   string reply = "No" ;
+                   fil_search_stream >> file ;
+                   for(int i = 0 ; i < files_owned.size() ; i++){
+                       if(file == files_owned[i]){
+                           reply = "Yes" ;
+                       }
                    }
+                   send(new_fd,reply.c_str(),reply.length(),0);
                    close(new_fd) ;
                    return ;
             } else if (clientid_incoming == "port_d2"){
@@ -326,13 +321,16 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 for (auto &u:d1_neigh_data){
                     res += to_string(u.first) + " " + to_string(u.second) + " ";
                 }
-
+                pthread_mutex_unlock(&glob_neigh_d1_mutex);
+                //cout << res << " D2-info " << endl ;
                 send(new_fd,res.c_str(),res.length(),0);
                 close(new_fd);
                 return;
 
+
             }
             else{
+              fil_search_stream >> uniqueid_incoming ;
                fil_search_stream >> port_incoming  ;
             stringstream file_to_be_sent_stream;
             stringstream file_for_depth2_stream;
@@ -378,7 +376,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
             
               //thread
               //cout << "Thread" << endl ;
-            while(true){
+            while(false){
             int numbytes_depth2;
             char rcvmsg_depth2[MAXDATASIZE] ;
             numbytes_depth2 = recv(new_fd, rcvmsg_depth2, MAXDATASIZE-1, 0);
@@ -588,6 +586,7 @@ int main(int argc, char *argv[])
     // send what files needed
     //wait for reply with list of files found
     //Print
+    pthread_mutex_lock(&glob_neigh_d1_mutex);
     while (true)
     {
         bool allconnected = true;
@@ -606,6 +605,12 @@ int main(int argc, char *argv[])
                     //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
                     d1_neigh_data.push_back({un_id,u.getPort()});
+
+
+                    pthread_mutex_lock(&portmap_mutex);
+                    uniqueid_portmap[un_id] = u.GetPort() ;
+                    pthread_mutex_unlock(&portmap_mutex);
+
                     // pthread_mutex_lock(&print_mutex);
                     // cout<<s<<endl;
                     // pthread_mutex_unlock(&print_mutex);
@@ -687,7 +692,8 @@ int main(int argc, char *argv[])
         }*/
         if (allconnected)
         {
-            //cout<< "Made all connections" << endl ;
+            //cout<< "Made all connections " << d1_neigh_data.size() <<endl ;
+            pthread_mutex_unlock(&glob_neigh_d1_mutex);
             break ;
         }
     }
@@ -695,15 +701,31 @@ int main(int argc, char *argv[])
     for (auto &u:d1_neigh_data){
         Neighbour p(-1,u.second);
         p.setUniqueID(u.first);
+        p.makeConnection();
         p.rcvMessage();
         p.sendMessage("port_d2");
         string s = p.rcvMessage();
+        //cout << s << "Message" << endl ;
         stringstream ss(s);
         while (ss){
-            int uid,prt;
+            string uid,prt;
             ss >> uid >> prt;
-            if (uid != unique_id){
-                d2_neigh_data.insert({uid,prt});
+            //cout << uid << " " << prt << endl ;
+            int uid_int , prt_int ;
+            try{
+               uid_int = stoi(uid) ;
+               prt_int = stoi(prt) ;
+            }
+            catch(exception &err){
+                //cout << "Problem here ?" << endl ;
+            }
+            
+            //cout << "Problem here ?" << endl ;
+            if (uid_int != unique_id){
+                d2_neigh_data.insert({uid_int,prt_int});
+                pthread_mutex_lock(&portmap_mutex);
+                uniqueid_portmap[uid_int] =  prt_int;
+                pthread_mutex_unlock(&portmap_mutex);
             }
         }
 
@@ -713,10 +735,17 @@ int main(int argc, char *argv[])
     for (auto &u:neighbors)
     {
         stringstream f ;
+        f << to_string(client_id) << " " ;
+        f << to_string(unique_id) << " " ;
+        f << to_string(port) << " " ;
+        // for (auto &u:d1_neigh_data){
+        //     f << u.first << " " << u.second << " " ;
+        // }
+        // f << "|| " ;
         for(int i = 0 ; i < files_needed.size(); i++){
             f << files_needed[i].first << " " ;
         }
-        string f_send = to_string(client_id) + " "+ to_string(port) + " " +  f.str() + " ";
+        string f_send = f.str() + " ";
         // pthread_mutex_lock(&print_mutex);
         // cout<<"Sending a search request to "<<u.GetUniqueID()<<"\n"<<f_send<<endl; 
         // pthread_mutex_unlock(&print_mutex);
@@ -760,19 +789,29 @@ int main(int argc, char *argv[])
 
     //separate thread
 
-    thread out_dep2_1(outgoing_depth2_1_thread,neighbors) ;
+    //thread out_dep2_1(outgoing_depth2_1_thread,neighbors) ;
 
     
-    //sleep(4) ;
     for(int i = 0 ; i < files_needed.size() ; i++){
         if(!found_at_depth1[i]){
-            sort(files_needed[i].second.begin(),files_needed[i].second.end());
-            if(!files_needed[i].second.empty()) {
-                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 2\n" ;
+            bool check = false ;
+            set<pair<int,int>>::reverse_iterator rit;
+            for (rit = d2_neigh_data.rbegin(); rit != d2_neigh_data.rend(); rit++){
+                Neighbour new_neighbour(-1,rit->second) ;
+                new_neighbour.setUniqueID(rit->first) ;
+                new_neighbour.makeConnection();
+                new_neighbour.rcvMessage();
+                new_neighbour.sendMessage("depth2 "+ files_needed[i].first);
+                string reply = new_neighbour.rcvMessage() ;
+                if(reply == "Yes"){
+                    check = true ;
+                    cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 2" << endl ;
+                }
             }
-            else {
-                cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0\n" ;
-            }
+            if(!check){
+                cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0" << endl ;
+            } 
+    
         }
     }
 
