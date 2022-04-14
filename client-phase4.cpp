@@ -19,6 +19,7 @@ pthread_mutex_t map_out_to_in_mutex;
 
 pthread_mutex_t depth2_1_mutex;
 
+//vector<thread> threads_global ;
 
 class Neighbour{
 private:
@@ -234,50 +235,6 @@ bool check_message(string& message, string depth, string type){
 }
 
 
-void incoming_depth2_1_thread(int clientid,int uniqueid,int new_fd,vector<string> files_owned){
-        while(true){
-            int numbytes_depth2;
-            char rcvmsg_depth2[MAXDATASIZE] ;
-            numbytes_depth2 = recv(new_fd, rcvmsg_depth2, MAXDATASIZE-1, 0);
-            cout << "Files someone asking for their neighbour " << endl ;
-            string res_depth2 = "";
-            if(numbytes_depth2 == -1)
-            {
-               perror("Could not recieve");
-            }
-            else
-            {
-              for (int i=0;i<numbytes_depth2;i++)
-               {
-                   res_depth2 += rcvmsg_depth2[i];
-               }
-            }
-            cout << res_depth2 << " Depth 2" << endl ;
-            istringstream fil_dep2_search_stream(res_depth2);
-            string new_client ;
-            fil_dep2_search_stream >> new_client ;
-            string new_port ;
-            fil_dep2_search_stream >> new_port ;
-            stringstream file_to_be_sent_dep2_stream;
-            while(fil_dep2_search_stream){
-               string  file ;
-               fil_dep2_search_stream >> file ;
-               for(int i = 0 ; i < files_owned.size() ; i++){
-                    if(files_owned[i] == file) {
-                        file_to_be_sent_dep2_stream << file << " " ;
-                        
-                    }
-               }
-            }
-            string files_to_send_dep2 ="depth2 " + to_string(clientid) + " " + to_string(uniqueid) + " " + file_to_be_sent_dep2_stream.str() + " ";
-            cout << "I have got this " << files_to_send_dep2 << endl ;
-            //pthread_mutex_lock(&depth2_1_mutex);
-            Neighbour new_neighbour(stoi(new_client),stoi(new_port)) ;
-            new_neighbour.makeConnection();
-            new_neighbour.sendMessage(files_to_send_dep2);
-            //thread sending(send_thread,new_fd,files_to_send_dep2) ;
-        }
-}
 
 void outgoing_depth2_1_thread(vector<Neighbour> neighbors ){
         while (true){
@@ -285,20 +242,22 @@ void outgoing_depth2_1_thread(vector<Neighbour> neighbors ){
         if (buffer_in_to_out.size() == 0)
         {
             pthread_mutex_unlock(&buffer_in_to_out_mutex);
+            sleep(1) ;
             continue;
         }
+        //cout << "Entered here" << endl;
         string curr = get<2>(buffer_in_to_out.front()) + " ";
         string  port_send = get<1>(buffer_in_to_out.front());
         string clientid_send = get<0>(buffer_in_to_out.front());
         buffer_in_to_out.pop();
-        //pthread_mutex_unlock(&buffer_in_to_out_mutex);
+        pthread_mutex_unlock(&buffer_in_to_out_mutex);
         
         vector<string> responses ;
         int count = 0 ; 
        
         for (auto &u:neighbors)
         {
-            cout << "My neighbour need this " << curr << endl ;
+            //cout << "My neighbour need this " << curr << endl ;
             u.sendMessage(clientid_send + " "+port_send + " " + curr);
         }
         //pthread_mutex_lock(&depth2_1_mutex) ;
@@ -307,6 +266,7 @@ void outgoing_depth2_1_thread(vector<Neighbour> neighbors ){
 
 void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string> files_owned, string s)
 {
+    
            if (send(new_fd, s.c_str(), s.length(), 0) == -1)
                 perror("send");
             string port_incoming ;
@@ -327,7 +287,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                    res += rcvmsg[i];
                }
             }
-            cout << res + "  Result" << endl ;
+            //cout << res + "  Result" << endl ;
             // pthread_mutex_lock(&print_mutex);
             // cout<<"===Recieved search request for\n"<<res<<"==="<<endl;
             // pthread_mutex_unlock(&print_mutex);
@@ -344,13 +304,15 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                        pthread_mutex_lock(&files_needed_mutex) ;
                        for(int i = 0 ; i < files_needed.size() ; i++){
                             if(files_needed[i].first == file_reply){
-                                cout << "Found one" << endl ;
+                                //cout << "Found one" << endl ;
                                 files_needed[i].second.push_back(stoi(unique_id_replied)) ;
                                 break;
                             }
                     }
                       pthread_mutex_unlock(&files_needed_mutex) ;
                    }
+                   close(new_fd) ;
+                   return ;
             }
             else{
                fil_search_stream >> port_incoming  ;
@@ -373,7 +335,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                }
             }
             string depth2_files = file_for_depth2_stream.str() ;
-            cout << " Files I don't have "<< depth2_files << endl ;
+            //cout << " Files I don't have "<< depth2_files << endl ;
             string files_to_send = file_to_be_sent_stream.str() + "  " ;
 
             //cout<<"Sending "<< files_to_send<<endl;
@@ -383,7 +345,9 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
            // cout << "Hi_inc" << endl ;
             if (counter > 0)
             {
+                //cout << "Trying to lock" << endl ;
                 pthread_mutex_lock(&buffer_in_to_out_mutex);
+                //cout << "Added to buffer" << endl ;
                 buffer_in_to_out.push(make_tuple(clientid_incoming,port_incoming ,depth2_files));
                 pthread_mutex_unlock(&buffer_in_to_out_mutex);
             }
@@ -395,7 +359,56 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
               //cout<<"Reached here\n";
             
               //thread
-               thread in_dep_2_1(incoming_depth2_1_thread,clientid,uniqueid,new_fd,files_owned) ;
+              //cout << "Thread" << endl ;
+            while(true){
+            int numbytes_depth2;
+            char rcvmsg_depth2[MAXDATASIZE] ;
+            numbytes_depth2 = recv(new_fd, rcvmsg_depth2, MAXDATASIZE-1, 0);
+            
+            string res_depth2 = "";
+            if(numbytes_depth2 == -1)
+            {
+               perror("Could not recieve");
+            }
+            else
+            {
+              for (int i=0;i<numbytes_depth2;i++)
+               {
+                   res_depth2 += rcvmsg_depth2[i];
+               }
+            }
+            if(res_depth2.find_first_not_of (' ') == res_depth2.npos || res_depth2 == ""){
+               continue ;
+            }
+            //cout << res_depth2 << " Depth 2" << endl ;
+            //cout << "Files someone asking for their neighbour " << endl ;
+            istringstream fil_dep2_search_stream(res_depth2);
+            string new_client ;
+            fil_dep2_search_stream >> new_client ;
+            string new_port ;
+            fil_dep2_search_stream >> new_port ;
+            stringstream file_to_be_sent_dep2_stream;
+            while(fil_dep2_search_stream){
+               string  file ;
+               fil_dep2_search_stream >> file ;
+               for(int i = 0 ; i < files_owned.size() ; i++){
+                    if(files_owned[i] == file) {
+                        file_to_be_sent_dep2_stream << file << " " ;
+                        
+                    }
+               }
+            }
+            if(!file_to_be_sent_dep2_stream.str().empty()){
+                string files_to_send_dep2 ="depth2 " + to_string(clientid) + " " + to_string(uniqueid) + " " + file_to_be_sent_dep2_stream.str() + " ";
+                //cout << "I have got this " << files_to_send_dep2 << endl ;
+                //pthread_mutex_lock(&depth2_1_mutex);
+                Neighbour new_neighbour(stoi(new_client),stoi(new_port)) ;
+                new_neighbour.makeConnection();
+                new_neighbour.sendMessage(files_to_send_dep2);
+            }
+            
+            //thread sending(send_thread,new_fd,files_to_send_dep2) ;
+        }
             }
             
 
@@ -704,7 +717,7 @@ int main(int argc, char *argv[])
             }
             else {
                 found_at_depth1[i] = false ; 
-                cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0" << endl ;
+                //cout << "Found " <<  files_needed[i].first <<" at 0 with MD5 0 at depth 0" << endl ;
             }
             //cout<<files_needed[i].first<<" "<<files_needed[i].second.size()<<"\n";
     }
