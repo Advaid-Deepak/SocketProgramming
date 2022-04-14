@@ -7,6 +7,7 @@
 #include <thread>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <openssl/md5.h>
 using namespace std;
 #define MAXDATASIZE 1000
 pthread_mutex_t print_mutex;
@@ -34,6 +35,29 @@ set<pair<int,int>> d2_neigh_data;
 string file_path_search;
 
 //vector<thread> threads_global ;
+
+
+string md5_file(string filename){
+	ifstream file(filename, std::ifstream::binary);
+	MD5_CTX md5Context;
+	MD5_Init(&md5Context);
+	char buf[1024 * 16];
+	while (file.good()) {
+    		file.read(buf, sizeof(buf));
+    		MD5_Update(&md5Context, buf, file.gcount());
+	}	
+	unsigned char result[MD5_DIGEST_LENGTH];
+	MD5_Final(result, &md5Context);
+	stringstream md5string;
+	md5string << std::hex << std::uppercase << std::setfill('0');
+	for (const auto &byte: result)
+    	md5string << std::setw(2) << (int)byte;
+
+	string s =  md5string.str();
+	transform(s.begin(),s.end(),s.begin(),::tolower);
+	return s;
+
+}
 
 class Neighbour{
 private:
@@ -341,7 +365,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
             else if (clientid_incoming == "filereq"){
                 string reqfilname;
                 fil_search_stream >> reqfilname;
-                cout<<"Recieved a request for "<<reqfilname<<endl;
+                //cout<<"Recieved a request for "<<reqfilname<<endl;
                 
                 //check if reqfilename exists
                 bool found = false ;
@@ -358,11 +382,11 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                     return;
                 }
                 string msg = "Yes";
-                cout<<"Sending "<<msg<<endl;
+                //cout<<"Sending "<<msg<<endl;
                 send(new_fd,msg.c_str(),msg.length(),0);
                 int num = recv(new_fd,rcvmsg,MAXDATASIZE-1,0);
                 string r = conv_str(rcvmsg,num);
-                cout<<"Recieved "<<r<<endl;
+                //cout<<"Recieved "<<r<<endl;
                 //Send filename with its length
                 string fil = file_path_search + "/" + reqfilname;
                 fstream fin(fil, ios::in | ios::binary);
@@ -378,7 +402,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                 int numpackets = ceil(1.0*length/(1.0*maxpacketsize));
                 msg = to_string(length) + " " + to_string(numpackets);
                 send(new_fd,msg.c_str(),msg.length(),0);
-                cout<<"Sent: "<<msg<<endl;
+                //cout<<"Sent: "<<msg<<endl;
                 //cout<<"Sent: "<<msg<<endl;
                 recv(new_fd,rcvmsg,MAXDATASIZE-1,0);
                 int index = 0;
@@ -393,7 +417,7 @@ void sub_incoming_threadfn(int new_fd, int clientid, int uniqueid,vector<string>
                     recv(new_fd,rcvmsg,MAXDATASIZE-1,0);
                 }
                 close(new_fd);
-                cout<<"Sent "<<reqfilname<<endl;
+                //cout<<"Sent "<<reqfilname<<endl;
                 delete buffer;
 
                 return;
@@ -987,7 +1011,7 @@ int main(int argc, char *argv[])
 
     for (auto u:to_download_d1){
         downloadFile(u.first,u.second);
-        cout << "Found " <<  u.second <<" at "<<u.first <<" with MD5 0 at depth 1" << endl ;
+        cout << "Found " <<  u.second <<" at "<<u.first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + u.second) <<" at depth 1" << endl ;
     }
 
     // for (auto u:to_download_d2){
@@ -1001,7 +1025,7 @@ int main(int argc, char *argv[])
             for (rit = d2_neigh_data.rbegin(); rit != d2_neigh_data.rend(); rit++){
                 if(downloadFile(rit->first,files_needed[i].first)){
                     check = true ;
-                    cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 2" << endl ;
+                    cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + files_needed[i].first)<< " at depth 2" << endl ;
                 }
             }
             if(!check){

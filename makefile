@@ -1,8 +1,6 @@
-client-phase4.o:client-phase4.cpp
-	g++ client-phase4.cpp -o client-phase4.o -lpthread
-client-phase3.o:client-phase3.cpp
-	g++ client-phase3.cpp -o client-phase3.o -lpthread
-client-phase2.o:client-phase2.cpp
-	g++ client-phase2.cpp -o client-phase2.o -lpthread
-client-phase1.o:client-phase1.cpp
-	g++ client-phase1.cpp -o client-phase1.o -lpthread
+all:
+	g++ -o client-phase1 client-phase1.cpp -lpthread 
+	g++ -o client-phase2 client-phase2.cpp -lpthread
+	g++ -o client-phase3 client-phase3.cpp -lpthread
+	g++ -o client-phase4 client-phase4.cpp -lpthread
+	g++ -o client-phase5 client-phase5.cpp -lpthread -lcrypto
