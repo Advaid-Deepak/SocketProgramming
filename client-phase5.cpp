@@ -567,7 +567,7 @@ void incoming_threadfn(int sock_fd, int clientid, int uniqueid,vector<string> fi
     }
 }
 
-void downloadFile(int uniqueid, string filname){
+bool downloadFile(int uniqueid, string filname){
     Neighbour n(-1,uniqueid_portmap[uniqueid]);
     n.setUniqueID(uniqueid);
     n.makeConnection();
@@ -578,7 +578,7 @@ void downloadFile(int uniqueid, string filname){
     if (p.substr(0,2)=="No")
     {
         //cout<<"File not found"<<endl;
-        return;
+        return false;
     }
     //cout<<"File found!"<<endl;
     string dirname = file_path_search + '/'+"Downloaded";
@@ -602,6 +602,7 @@ void downloadFile(int uniqueid, string filname){
     }
 
     fout.close();
+    return true;
 }
 
 
@@ -872,6 +873,7 @@ int main(int argc, char *argv[])
 
     
     //    sleep(4) ;
+
     for(int i = 0 ; i < files_needed.size() ; i++){
         if(!found_at_depth1[i]){
             sort(files_needed[i].second.begin(),files_needed[i].second.end());
@@ -888,7 +890,11 @@ int main(int argc, char *argv[])
             }
         }
     }
-
+    /*
+    For each file not found in depth 1:
+    GO over the set of depth 2 neighbours from the end
+    call downloadFile with the values of the current element from set
+    */
     for (auto u:to_download_d1){
         downloadFile(u.first,u.second);
         cout << "Found " <<  u.second <<" at "<<u.first <<" with MD5 0 at depth 1" << endl ;
