@@ -1043,7 +1043,7 @@ int main(int argc, char *argv[])
             }
             if(!check){
                 stringstream ss;
-                ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0"  ;
+                ss << "Found " << files_needed[i].first <<" at "<< 0 <<" with MD5 0 at depth 0"  ;
                 found_print_buffer.push_back({files_needed[i].first,ss.str()});
             } 
     
