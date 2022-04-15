@@ -548,6 +548,7 @@ int main(int argc, char *argv[])
         perror ("opendir");
         return EXIT_FAILURE;
     }
+    sort(files_owned.begin(),files_owned.end());
     for (auto file : files_owned) cout << file << "\n";
 
     //for (auto file : files_needed) cout << file.first << "\n";
@@ -587,6 +588,7 @@ int main(int argc, char *argv[])
     //wait for reply with list of files found
     //Print
     pthread_mutex_lock(&glob_neigh_d1_mutex);
+    vector<pair<int,string>> connect_print_buffer;
     while (true)
     {
         bool allconnected = true;
@@ -601,7 +603,9 @@ int main(int argc, char *argv[])
                     int cl_id,un_id;
                     details >> cl_id >> un_id;
                     //pthread_mutex_lock(&print_mutex);
-                    cout<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
+                    stringstream ss;
+                    ss<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort();
+                    connect_print_buffer.push_back({cl_id,ss.str()});
                     //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
                     d1_neigh_data.push_back({un_id,u.getPort()});
@@ -698,6 +702,11 @@ int main(int argc, char *argv[])
         }
     }
 
+    sort(connect_print_buffer.begin(),connect_print_buffer.end());
+    for (auto &u:connect_print_buffer){
+        cout<<u.second<<endl;
+    }
+
     for (auto &u:d1_neigh_data){
         Neighbour p(-1,u.second);
         p.setUniqueID(u.first);
@@ -772,13 +781,15 @@ int main(int argc, char *argv[])
         }
         //cout<<"Done with neighbour "<<u.GetUniqueID()<<endl;
     }
-    
+    vector<pair<string,string>> found_print_buffer;
     bool found_at_depth1[files_needed.size()] ;
     for(int i = 0 ; i < files_needed.size() ; i++){
             sort(files_needed[i].second.begin(),files_needed[i].second.end());
             if(!files_needed[i].second.empty()) {
                 found_at_depth1[i] = true ;
-                cout << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 1" << endl ;
+                stringstream ss;
+                ss << "Found " <<  files_needed[i].first <<" at "<<files_needed[i].second[0] <<" with MD5 0 at depth 1" ;
+                found_print_buffer.push_back({files_needed[i].first,ss.str()});
             }
             else {
                 found_at_depth1[i] = false ; 
@@ -795,8 +806,8 @@ int main(int argc, char *argv[])
     for(int i = 0 ; i < files_needed.size() ; i++){
         if(!found_at_depth1[i]){
             bool check = false ;
-            set<pair<int,int>>::reverse_iterator rit;
-            for (rit = d2_neigh_data.rbegin(); rit != d2_neigh_data.rend(); rit++){
+            set<pair<int,int>>::iterator rit;
+            for (rit = d2_neigh_data.begin(); rit != d2_neigh_data.end(); rit++){
                 Neighbour new_neighbour(-1,rit->second) ;
                 new_neighbour.setUniqueID(rit->first) ;
                 new_neighbour.makeConnection();
@@ -805,17 +816,25 @@ int main(int argc, char *argv[])
                 string reply = new_neighbour.rcvMessage() ;
                 if(reply == "Yes"){
                     check = true ;
-                    cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 2" << endl ;
+                    stringstream ss;
+                    ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 2"  ;
+                    found_print_buffer.push_back({files_needed[i].first,ss.str()});
+                    break;
                 }
             }
             if(!check){
-                cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0" << endl ;
+                stringstream ss;
+                ss << "Found " << files_needed[i].first <<" at "<< 0 <<" with MD5 0 at depth 0"  ;
+                found_print_buffer.push_back({files_needed[i].first,ss.str()});
             } 
     
         }
     }
 
-
+    sort(found_print_buffer.begin(),found_print_buffer.end());
+    for (auto &u:found_print_buffer){
+        cout<<u.second<<endl;
+    }
 
 
     recving.join();
