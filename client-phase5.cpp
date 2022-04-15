@@ -768,6 +768,7 @@ int main(int argc, char *argv[])
     //wait for reply with list of files found
     //Print
     pthread_mutex_lock(&glob_neigh_d1_mutex);
+    vector<pair<int,string>> connect_print_buffer;
     while (true)
     {
         bool allconnected = true;
@@ -782,7 +783,9 @@ int main(int argc, char *argv[])
                     int cl_id,un_id;
                     details >> cl_id >> un_id;
                     //pthread_mutex_lock(&print_mutex);
-                    cout<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
+                    stringstream ss;
+                    ss<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
+                    connect_print_buffer.push_back({cl_id,ss.str()});
                     //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
                     d1_neigh_data.push_back({un_id,u.getPort()});
@@ -877,6 +880,11 @@ int main(int argc, char *argv[])
             pthread_mutex_unlock(&glob_neigh_d1_mutex);
             break ;
         }
+    }
+
+    sort(connect_print_buffer.begin(),connect_print_buffer.end());
+    for (auto &u:connect_print_buffer){
+        cout<<u.second;
     }
 
     for (auto &u:d1_neigh_data){
@@ -1007,11 +1015,13 @@ int main(int argc, char *argv[])
     call downloadFile with the values of the current element from set
     */
    
-
+   vector<pair<string,string>> found_print_buffer;
 
     for (auto u:to_download_d1){
         downloadFile(u.first,u.second);
-        cout << "Found " <<  u.second <<" at "<<u.first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + u.second) <<" at depth 1" << endl ;
+        stringstream ss;
+        ss << "Found " <<  u.second <<" at "<<u.first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + u.second) <<" at depth 1" << endl ;
+        found_print_buffer.push_back({u.second,ss.str()});
     }
 
     // for (auto u:to_download_d2){
@@ -1025,16 +1035,23 @@ int main(int argc, char *argv[])
             for (rit = d2_neigh_data.rbegin(); rit != d2_neigh_data.rend(); rit++){
                 if(downloadFile(rit->first,files_needed[i].first)){
                     check = true ;
-                    cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + files_needed[i].first)<< " at depth 2" << endl ;
+                    stringstream ss;
+                    ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + files_needed[i].first)<< " at depth 2" << endl ;
+                    found_print_buffer.push_back({files_needed[i].first,ss.str()});
                 }
             }
             if(!check){
-                cout << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0" << endl ;
+                stringstream ss;
+                ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0" << endl ;
+                found_print_buffer.push_back({files_needed[i].first,ss.str()});
             } 
     
         }
     }
 
+    for (auto &u:found_print_buffer){
+        cout<<u.second;
+    }
 
 
     recving.join();
