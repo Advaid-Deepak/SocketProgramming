@@ -784,7 +784,7 @@ int main(int argc, char *argv[])
                     details >> cl_id >> un_id;
                     //pthread_mutex_lock(&print_mutex);
                     stringstream ss;
-                    ss<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort()<<endl;
+                    ss<<"Connected to " <<cl_id<< " with unique-ID " << un_id <<" on port "<<u.getPort();
                     connect_print_buffer.push_back({cl_id,ss.str()});
                     //pthread_mutex_unlock(&print_mutex);
                     u.setUniqueID(un_id);
@@ -884,7 +884,7 @@ int main(int argc, char *argv[])
 
     sort(connect_print_buffer.begin(),connect_print_buffer.end());
     for (auto &u:connect_print_buffer){
-        cout<<u.second;
+        cout<<u.second<<endl;
     }
 
     for (auto &u:d1_neigh_data){
@@ -1020,7 +1020,7 @@ int main(int argc, char *argv[])
     for (auto u:to_download_d1){
         downloadFile(u.first,u.second);
         stringstream ss;
-        ss << "Found " <<  u.second <<" at "<<u.first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + u.second) <<" at depth 1" << endl ;
+        ss << "Found " <<  u.second <<" at "<<u.first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + u.second) <<" at depth 1"  ;
         found_print_buffer.push_back({u.second,ss.str()});
     }
 
@@ -1031,26 +1031,28 @@ int main(int argc, char *argv[])
     for(int i = 0 ; i < files_needed.size() ; i++){
         if(!found_at_depth1[i]){
             bool check = false ;
-            set<pair<int,int>>::reverse_iterator rit;
-            for (rit = d2_neigh_data.rbegin(); rit != d2_neigh_data.rend(); rit++){
+            set<pair<int,int>>::iterator rit;
+            for (rit = d2_neigh_data.begin(); rit != d2_neigh_data.end(); rit++){
                 if(downloadFile(rit->first,files_needed[i].first)){
                     check = true ;
                     stringstream ss;
-                    ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + files_needed[i].first)<< " at depth 2" << endl ;
+                    ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 "<<md5_file(file_path_search + "/Downloaded/" + files_needed[i].first)<< " at depth 2" ;
                     found_print_buffer.push_back({files_needed[i].first,ss.str()});
+                    break;
                 }
             }
             if(!check){
                 stringstream ss;
-                ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0" << endl ;
+                ss << "Found " << files_needed[i].first <<" at "<< rit->first <<" with MD5 0 at depth 0"  ;
                 found_print_buffer.push_back({files_needed[i].first,ss.str()});
             } 
     
         }
     }
 
+    sort(found_print_buffer.begin(),found_print_buffer.end());
     for (auto &u:found_print_buffer){
-        cout<<u.second;
+        cout<<u.second<<endl;
     }
 
 
